@@ -47,6 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = (new Models\TimeLogModel($pdo))->clockOut((int) $user['tenant_id'], (int) $user['id']);
         if ($res['ok']) { $notice = htmlspecialchars($user['username']) . ' clocked out at ' . $res['at'] . '.'; }
         else { $error = $res['error']; }
+    } elseif (!(new Models\TimeLogModel($pdo))->hasClockedInToday((int) $user['tenant_id'], (int) $user['id'])) {
+        $error = 'Clock in first — tap Clock In above before logging in.';
     } else { // login
         session_regenerate_id(true);
         TenantContext::establish($pdo, $user);
@@ -88,21 +90,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
        background:#f7f7fb;color:#1f2330;}
   .key:active{background:#eef0f4;}
 
-  .side{flex:1 1 42%;background:#fef2f2;border-left:1px solid #eef0f4;padding:26px;display:flex;flex-direction:column;justify-content:center;}
+  .side{flex:1 1 42%;background:#f0fdf4;border-left:1px solid #eef0f4;padding:26px;display:flex;flex-direction:column;justify-content:center;}
   .brand{text-align:center;margin-bottom:22px;}
-  .brand-icon{width:56px;height:56px;border-radius:14px;overflow:hidden;background:#fff;border:1px solid #f3d3d3;
-              display:flex;align-items:center;justify-content:center;margin:0 auto 10px;color:#dc2626;font-size:1.4rem;}
+  .brand-icon{width:56px;height:56px;border-radius:14px;overflow:hidden;background:#fff;border:1px solid #bbf0d1;
+              display:flex;align-items:center;justify-content:center;margin:0 auto 10px;color:#16a34a;font-size:1.4rem;}
   .brand-icon img{width:100%;height:100%;object-fit:contain;}
   .brand h1{color:#1f2330;font-size:1.1rem;font-weight:800;margin:0 0 2px;letter-spacing:-.02em;}
   .brand p{color:#9aa0ac;font-size:.76rem;margin:0;text-transform:uppercase;letter-spacing:.1em;}
   .actions{display:flex;flex-direction:column;gap:10px;}
   .act{border:0;border-radius:12px;padding:15px;font-weight:800;font-size:.92rem;letter-spacing:.02em;cursor:pointer;}
   .act i{margin-right:6px;}
-  .act-login{background:#dc2626;color:#fff;}
-  .act-in{background:#16a34a;color:#fff;}
+  .act-login{background:#16a34a;color:#fff;}
+  .act-in{background:#2563eb;color:#fff;}
   .act-out{background:#fff;color:#1f2330;border:1px solid #e2e4ea;}
   .admin-link{display:block;text-align:center;margin-top:18px;color:#9aa0ac;font-size:.78rem;text-decoration:none;}
-  .admin-link:hover{color:#dc2626;}
+  .admin-link:hover{color:#16a34a;}
 
   @media (max-width: 560px){
     .panel{flex-direction:column;border-radius:18px;}
@@ -130,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="brand">
         <div class="brand-icon">
           <?php if ($shopLogo): ?><img src="<?php echo htmlspecialchars($shopLogo); ?>" alt="">
-          <?php else: ?><i class="fas fa-layer-group"></i><?php endif; ?>
+          <?php else: ?><i class="fas fa-book-open"></i><?php endif; ?>
         </div>
         <h1><?php echo htmlspecialchars($shopName); ?></h1>
         <p>Staff terminal</p>

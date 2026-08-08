@@ -43,6 +43,41 @@ class SupplierModel extends Model
         return false;
     }
 
+    /** Reuse the existing supplier for this name, or create one. Blank name -> null. */
+    public function findOrCreate(string $name): ?int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return null;
+        }
+        $rows = $this->all(['name' => $name]);
+        if ($rows) {
+            return (int) $rows[0]['id'];
+        }
+        $res = $this->create($name);
+        if ($res['ok']) {
+            return (int) $res['id'];
+        }
+        // Lost a create race — the row that won it now exists.
+        $rows = $this->all(['name' => $name]);
+        return $rows ? (int) $rows[0]['id'] : null;
+    }
+
+    /** Matching names for the type-ahead box, "starts with" ranked first. */
+    public function suggestions(string $q, int $limit = 8): array
+    {
+        $tid = \TenantContext::tenantId();
+        $q = trim($q);
+        $stmt = $this->db->prepare(
+            "SELECT id, name FROM suppliers
+              WHERE tenant_id = ? AND name LIKE ?
+           ORDER BY (name LIKE ?) DESC, name ASC
+              LIMIT " . (int) $limit
+        );
+        $stmt->execute([$tid, '%' . $q . '%', $q . '%']);
+        return $stmt->fetchAll();
+    }
+
     /** Suppliers with a count of products currently attributed to them. */
     public function listWithCounts(): array
     {

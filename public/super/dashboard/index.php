@@ -11,9 +11,12 @@ $currency = $__tenant['currency'] ?? 'KES';
 function dash_sales(Models\SaleModel $SA, Models\OrderModel $OR, string $period): array
 {
     $sales = $SA->forTenant(1000, $period);
-    foreach ($sales as &$s) { $s['receipt_url'] = 'staff/sales/receipt.php?id=' . (int) $s['id']; $s['source'] = 'sale'; }
+    foreach ($sales as &$s) { $s['receipt_url'] = 'super/sales/receipt.php?id=' . (int) $s['id']; $s['source'] = 'sale'; }
     unset($s);
-    $merged = array_merge($sales, $OR->forTenant(1000, $period));
+    $orders = $OR->forTenant(1000, $period);
+    foreach ($orders as &$o) { $o['receipt_url'] = 'super/orders/receipt.php?id=' . (int) $o['id']; }
+    unset($o);
+    $merged = array_merge($sales, $orders);
     usort($merged, fn($a, $b) => strtotime($b['created_at']) <=> strtotime($a['created_at']));
     return $merged;
 }
@@ -46,6 +49,14 @@ for ($i = 6; $i >= 0; $i--) {
 }
 
 $recent = array_slice($today ?: $week, 0, 8);
+$recentSaleIds  = array_column(array_filter($recent, fn($s) => ($s['source'] ?? 'sale') === 'sale'), 'id');
+$recentOrderIds = array_column(array_filter($recent, fn($s) => ($s['source'] ?? 'sale') === 'order'), 'id');
+$recentItemsBySale  = $SA->itemsForMany($recentSaleIds);
+$recentItemsByOrder = $OR->itemsForMany($recentOrderIds);
+foreach ($recent as &$r) {
+    $r['items'] = (($r['source'] ?? 'sale') === 'order' ? $recentItemsByOrder : $recentItemsBySale)[(int) $r['id']] ?? [];
+}
+unset($r);
 
 $page_title = 'Dashboard';
 $shop = $__tenant['name'] ?? 'your shop';
@@ -57,7 +68,7 @@ ob_start();
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
           <span class="text-muted small text-uppercase fw-semibold">Today's Revenue</span>
-          <span class="dash-ic" style="background:#fef2f2;color:var(--pos-red);"><i class="fas fa-sack-dollar"></i></span>
+          <span class="dash-ic" style="background:#f0fdf4;color:var(--pos-green);"><i class="fas fa-sack-dollar"></i></span>
         </div>
         <div class="h4 mb-0 fw-bold"><?php echo htmlspecialchars($currency); ?> <?php echo number_format($todaySum['revenue'], 0); ?></div>
         <div class="text-muted small"><?php echo $todaySum['count']; ?> sale<?php echo $todaySum['count'] !== 1 ? 's' : ''; ?> today</div>
@@ -81,7 +92,7 @@ ob_start();
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
           <span class="text-muted small text-uppercase fw-semibold">Open Tabs</span>
-          <span class="dash-ic" style="background:#fffbeb;color:#d97706;"><i class="fas fa-mug-hot"></i></span>
+          <span class="dash-ic" style="background:#fffbeb;color:#d97706;"><i class="fas fa-receipt"></i></span>
         </div>
         <div class="h4 mb-0 fw-bold"><?php echo count($openTabs); ?></div>
         <div class="text-muted small">unpaid right now</div>
@@ -142,11 +153,18 @@ ob_start();
     <?php else: ?>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
-          <thead><tr class="text-muted small text-uppercase"><th>Customer</th><th>When</th><th>Staff</th><th>Pay</th><th class="text-end">Amount</th></tr></thead>
+          <thead><tr class="text-muted small text-uppercase"><th>Customer</th><th>Products</th><th>When</th><th>Staff</th><th>Pay</th><th class="text-end">Amount</th></tr></thead>
           <tbody>
             <?php foreach ($recent as $r): ?>
             <tr>
-              <td class="small fw-semibold"><?php echo htmlspecialchars($r['customer_name'] ?: '—'); ?></td>
+              <td class="small fw-semibold">
+                <?php if ($r['customer_name'] && $r['customer_name'] !== 'Walk-in Customer'): ?>
+                  <a href="<?php echo public_url('super/sales/customer.php?name=' . urlencode($r['customer_name'])); ?>"><?php echo htmlspecialchars($r['customer_name']); ?></a>
+                <?php else: ?>
+                  <?php echo htmlspecialchars($r['customer_name'] ?: '—'); ?>
+                <?php endif; ?>
+              </td>
+              <td class="small"><?php echo Models\SaleModel::itemsSummaryHtml($r['items']); ?></td>
               <td class="small text-muted"><?php echo date('j M, g:i a', strtotime($r['created_at'])); ?></td>
               <td class="small"><?php echo htmlspecialchars($r['staff_name'] ?: '—'); ?></td>
               <td class="small"><span class="badge bg-light text-dark"><?php echo htmlspecialchars(ucfirst($r['payment_method'] ?? 'cash')); ?></span></td>
@@ -167,7 +185,7 @@ new Chart(document.getElementById('salesChart'), {
   type: 'bar',
   data: {
     labels: <?php echo json_encode($chartLabels); ?>,
-    datasets: [{ data: <?php echo json_encode($chartValues); ?>, backgroundColor: '#dc2626', borderRadius: 6, maxBarThickness: 40 }]
+    datasets: [{ data: <?php echo json_encode($chartValues); ?>, backgroundColor: '#16a34a', borderRadius: 6, maxBarThickness: 40 }]
   },
   options: {
     plugins: { legend: { display: false } },

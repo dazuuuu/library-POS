@@ -36,6 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
     header('Location: ' . public_url('super/staff/'));
     exit;
 
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset_pin') {
+    $id = (int) ($_POST['id'] ?? 0);
+    $res = $svc->setPin((int) $tenantId, $id, trim($_POST['pin'] ?? ''));
+    $_SESSION['flash'][$res['ok'] ? 'success' : 'error'] = $res['ok'] ? "PIN reset — let them know their new PIN." : ($res['error'] ?? 'Could not reset that PIN.');
+    header('Location: ' . public_url('super/staff/'));
+    exit;
+
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
     $id = (int) ($_POST['id'] ?? 0);
     $res = $svc->deleteStaff((int) $tenantId, $id);
@@ -64,7 +71,7 @@ ob_start();
           </div>
           <div class="mb-3">
             <label class="form-label">Position <span class="text-muted">(optional)</span></label>
-            <input name="position" class="form-control" placeholder="e.g. Bartender, Waiter, Cashier" value="<?php echo htmlspecialchars($old['position']); ?>">
+            <input name="position" class="form-control" placeholder="e.g. Cashier, Sales Assistant, Store Manager" value="<?php echo htmlspecialchars($old['position']); ?>">
           </div>
           <div class="mb-3">
             <label class="form-label">PIN</label>
@@ -102,6 +109,16 @@ ob_start();
                   </td>
                   <td class="text-end" style="white-space:nowrap;">
                     <a class="btn btn-sm btn-outline-secondary" href="<?php echo public_url('super/staff/permissions.php?staff=' . (int) $s['id']); ?>">Permissions</a>
+                    <div class="dropdown d-inline">
+                      <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">Reset PIN</button>
+                      <form method="post" class="dropdown-menu p-3" style="min-width:220px;" onclick="event.stopPropagation();">
+                        <input type="hidden" name="action" value="reset_pin">
+                        <input type="hidden" name="id" value="<?php echo (int) $s['id']; ?>">
+                        <label class="form-label small mb-1">New PIN for <?php echo htmlspecialchars($s['username']); ?></label>
+                        <input name="pin" inputmode="numeric" pattern="\d{4,6}" maxlength="6" class="form-control form-control-sm mb-2" placeholder="4 to 6 digits" required>
+                        <button class="btn btn-sm btn-primary w-100">Set new PIN</button>
+                      </form>
+                    </div>
                     <form method="post" class="d-inline">
                       <input type="hidden" name="action" value="toggle_active">
                       <input type="hidden" name="id" value="<?php echo (int) $s['id']; ?>">

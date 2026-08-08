@@ -29,6 +29,25 @@ class PageGuard
         }
     }
 
+    /**
+     * Require the tenant's PRIMARY owner — the one account that can create
+     * other admin accounts. Any owner created later via the in-app "Admins"
+     * page is a secondary admin (tenant_owner role, but not
+     * tenants.owner_user_id) and is denied here, so an admin can't create
+     * further admins.
+     */
+    public static function primaryOwner(): void
+    {
+        self::tenant();
+        $tid = TenantContext::tenantId();
+        $uid = TenantContext::userId();
+        $stmt = Database::pdo()->prepare('SELECT owner_user_id FROM tenants WHERE id = ? LIMIT 1');
+        $stmt->execute([$tid]);
+        if ((int) $stmt->fetchColumn() !== $uid) {
+            self::deny();
+        }
+    }
+
     /** Require a fully-authenticated STAFF member. */
     public static function staff(): void
     {

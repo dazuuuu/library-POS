@@ -1,11 +1,17 @@
+
 <?php
+
 // app/config/database.php
 
 return [
     'host' => 'localhost',
-    'dbname' => '2in1_db',
+    'dbname' => 'archimedes_db',
     'username' => 'root',
     'password' => '',
     'charset' => 'utf8mb4'
 ];
+
+
 ?>
+
+

@@ -1,8 +1,8 @@
--- Active: 1780050571987@@127.0.0.1@3306@ismano_db
+-- Active: 1780050571987@@127.0.0.1@3306@archimedes_db
 -- databases/migrations/001_create_users_table.sql
 
-CREATE DATABASE IF NOT EXISTS modern_db;
-USE modern_db;
+CREATE DATABASE IF NOT EXISTS archimedes_db;
+USE archimedes_db;
 
 -- Create roles table
 CREATE TABLE IF NOT EXISTS roles (

@@ -167,6 +167,14 @@ $waText = rawurlencode("Receipt {$sale['receipt_number']} from {$RECEIPT_BUSINES
 $waLink = 'https://wa.me/' . $waNum . '?text=' . $waText;
 
 $defaultEmail = htmlspecialchars($sale['customer_email'] ?? '');
+
+// This one page is reached from both the staff till and the owner's Sales/
+// Dashboard views — send each viewer back into their own section instead of
+// always dropping an owner onto the staff selling screen.
+$isStaffViewer = TenantContext::role() === 'staff';
+$backLinks = $isStaffViewer
+    ? ['New order' => public_url('staff/orders/new.php'), 'My sales' => public_url('staff/sales/')]
+    : ['Sales' => public_url('super/sales/'), 'Dashboard' => public_url('super/dashboard/')];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -206,8 +214,9 @@ $defaultEmail = htmlspecialchars($sale['customer_email'] ?? '');
       </div>
     </form>
     <div class="d-flex gap-2 mt-3">
-      <a href="<?php echo public_url('staff/orders/new.php'); ?>" class="btn btn-link flex-fill">New order</a>
-      <a href="<?php echo public_url('staff/sales/'); ?>" class="btn btn-link flex-fill">My sales</a>
+      <?php foreach ($backLinks as $label => $url): ?>
+        <a href="<?php echo htmlspecialchars($url); ?>" class="btn btn-link flex-fill"><?php echo htmlspecialchars($label); ?></a>
+      <?php endforeach; ?>
     </div>
   </div>
 </body>

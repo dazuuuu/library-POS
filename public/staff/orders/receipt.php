@@ -31,6 +31,10 @@ $openedBy = $nameOf((int) $order['opened_by']);
 $paidBy   = $order['paid_by'] ? $nameOf((int) $order['paid_by']) : '';
 
 function money($n) { global $currency; return $currency . ' ' . number_format((float) $n, 2); }
+
+// Reached from both the staff till and (potentially) the owner's views —
+// send each viewer back into their own section, not always into staff.
+$isStaffViewer = TenantContext::role() === 'staff';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -58,7 +62,7 @@ function money($n) { global $currency; return $currency . ' ' . number_format((f
       <div style="font-size:12px;margin-top:4px;"><?php echo $isWalkin ? 'Receipt' : 'Invoice'; ?> <?php echo htmlspecialchars($order['receipt_number']); ?></div>
       <div style="font-size:12px;">DATE: <?php echo htmlspecialchars(date('j M Y, g:i a', strtotime($order['created_at']))); ?></div>
       <?php if (!$isWalkin || $order['table_name'] !== 'Walk-in Customer'): ?>
-      <div style="font-size:12px;"><?php echo $isWalkin ? 'Customer' : 'Table / customer'; ?>: <strong><?php echo htmlspecialchars($order['table_name']); ?></strong></div>
+      <div style="font-size:12px;"><?php echo $isWalkin ? 'Customer' : 'Customer'; ?>: <strong><?php echo htmlspecialchars($order['table_name']); ?></strong></div>
       <?php endif; ?>
       <div style="font-size:12px;"><?php echo $isWalkin ? 'Served by' : 'Opened by'; ?>: <?php echo htmlspecialchars($openedBy ?: '—'); ?></div>
     </div>
@@ -79,6 +83,10 @@ function money($n) { global $currency; return $currency . ' ' . number_format((f
     </table>
 
     <table style="width:100%;border-collapse:collapse;font-size:14px;border-top:2px dashed #cbd5e1;margin-top:8px;padding-top:8px;">
+      <?php if ((float) ($order['discount_amount'] ?? 0) > 0): ?>
+        <tr><td style="color:#64748b;">Subtotal</td><td style="text-align:right;"><?php echo money($order['subtotal']); ?></td></tr>
+        <tr><td style="color:#64748b;">Discount</td><td style="text-align:right;">− <?php echo money($order['discount_amount']); ?></td></tr>
+      <?php endif; ?>
       <tr><td style="font-weight:700;padding-top:8px;">Total</td><td style="text-align:right;font-weight:700;padding-top:8px;"><?php echo money($order['total']); ?></td></tr>
       <?php if ($order['status'] === 'paid'): ?>
         <tr><td style="color:#64748b;">Paid via</td><td style="text-align:right;"><?php echo htmlspecialchars(ucfirst($order['payment_method'] ?? '')); ?></td></tr>
@@ -101,11 +109,16 @@ function money($n) { global $currency; return $currency . ' ' . number_format((f
   <div class="actions">
     <div class="d-flex gap-2 mb-2">
       <button onclick="window.print()" class="btn btn-primary flex-fill"><i class="fas fa-print me-1"></i> Print</button>
-      <?php if (!$isWalkin && $order['status'] === 'open'): ?>
+      <?php if ($isStaffViewer && !$isWalkin && $order['status'] === 'open'): ?>
         <a href="<?php echo public_url('staff/orders/view.php?id=' . $id); ?>" class="btn btn-outline-secondary flex-fill">Back to tab</a>
       <?php endif; ?>
     </div>
-    <?php if ($isWalkin): ?>
+    <?php if (!$isStaffViewer): ?>
+    <div class="d-flex gap-2">
+      <a href="<?php echo public_url('super/sales/'); ?>" class="btn btn-link flex-fill">Sales</a>
+      <a href="<?php echo public_url('super/dashboard/'); ?>" class="btn btn-link flex-fill">Dashboard</a>
+    </div>
+    <?php elseif ($isWalkin): ?>
     <div class="d-flex gap-2">
       <a href="<?php echo public_url('staff/sales/'); ?>" class="btn btn-link flex-fill">Sales history</a>
       <a href="<?php echo public_url('staff/dashboard/'); ?>" class="btn btn-link flex-fill">New sale</a>

@@ -16,18 +16,24 @@ class AuditLogModel extends Model
 
     /** Fields we diff on a product edit, with human labels + how to display them. */
     public const PRODUCT_FIELDS = [
-        'name'                => 'Name',
-        'category_id'         => 'Category',
-        'subcategory_id'      => 'Subcategory',
+        'name'                => 'Book title',
+        'category_id'         => 'Subject',
+        'grade_id'            => 'Grade/Class',
+        'publisher_id'        => 'Publisher',
+        'author_id'           => 'Author',
+        'edition_id'          => 'Edition',
+        'barcode'             => 'Barcode',
         'description'         => 'Description',
-        'quantity'            => 'Stock',
+        'quantity'            => 'Balance',
         'unit'                => 'Unit',
-        'buying_price'        => 'Buying price',
+        'buying_price'        => 'Unit price (cost)',
         'wholesale_price'     => 'Wholesale price',
-        'retail_price'        => 'Retail price',
+        'retail_price'        => 'Selling price',
+        'offer_price'         => 'Offer price',
+        'offer_ends_at'       => 'Offer ends',
         'low_stock_threshold' => 'Restock alert',
         'status'              => 'Status',
-        'image_path'          => 'Image',
+        'image_path'          => 'Cover photo',
     ];
 
     /**

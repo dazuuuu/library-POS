@@ -43,15 +43,28 @@ $isOn = function (string $needle) use ($uri): string {
         <?php if (TenantContext::role() === 'tenant_owner'): ?>
         <a class="t-link <?php echo $isOn('/super/sales'); ?>" href="<?php echo public_url('super/sales/'); ?>"><i class="fas fa-receipt"></i><span>Sales</span></a>
         <?php endif; ?>
+        <?php if (TenantContext::can(Capabilities::SALES_RECORD)): ?>
+        <a class="t-link <?php echo $isOn('/super/orders'); ?>" href="<?php echo public_url('super/orders/'); ?>"><i class="fas fa-hand-holding-dollar"></i><span>Open tabs</span></a>
+        <?php endif; ?>
 
         <?php if (TenantContext::can(Capabilities::STAFF_MANAGE)):
             $onPermissions = strpos($uri, 'permissions') !== false;
+            $onAttendance  = strpos($uri, 'attendance') !== false;
         ?>
-        <a class="t-link <?php echo ($isOn('/super/staff') && !$onPermissions) ? 'active' : ''; ?>" href="<?php echo public_url('super/staff/'); ?>">
+        <a class="t-link <?php echo ($isOn('/super/staff') && !$onPermissions && !$onAttendance) ? 'active' : ''; ?>" href="<?php echo public_url('super/staff/'); ?>">
             <i class="fas fa-user-gear"></i><span>Staff</span>
         </a>
         <a class="t-link <?php echo $onPermissions ? 'active' : ''; ?>" href="<?php echo public_url('super/staff/permissions.php'); ?>">
             <i class="fas fa-key"></i><span>Permissions</span>
+        </a>
+        <a class="t-link <?php echo $onAttendance ? 'active' : ''; ?>" href="<?php echo public_url('super/staff/attendance.php'); ?>">
+            <i class="fas fa-clock"></i><span>Attendance</span>
+        </a>
+        <?php endif; ?>
+
+        <?php if (TenantContext::role() === 'tenant_owner' && (int) ($__tenant['owner_user_id'] ?? 0) === (int) TenantContext::userId()): ?>
+        <a class="t-link <?php echo $isOn('/super/admins'); ?>" href="<?php echo public_url('super/admins/'); ?>">
+            <i class="fas fa-user-shield"></i><span>Admins</span>
         </a>
         <?php endif; ?>
 
@@ -60,15 +73,33 @@ $isOn = function (string $needle) use ($uri): string {
             <i class="fas fa-warehouse"></i><span>Inventory</span>
         </a>
         <?php endif; ?>
-        <?php if (TenantContext::can(Capabilities::INVENTORY_EDIT)): ?>
-        <a class="t-link <?php echo $isOn('/super/categories'); ?><?php echo $isOn('/super/subcategories'); ?>" href="<?php echo public_url('super/categories/'); ?>">
-            <i class="fas fa-tags"></i><span>Categories</span>
+        <?php if (TenantContext::can(Capabilities::INVENTORY_EDIT)):
+            $onStationeryCats = strpos($uri, '/super/categories') !== false && ($_GET['type'] ?? '') === 'stationery';
+        ?>
+        <a class="t-link <?php echo (strpos($uri, '/super/categories') !== false && !$onStationeryCats) ? 'active' : ''; ?>" href="<?php echo public_url('super/categories/'); ?>">
+            <i class="fas fa-tags"></i><span>Subjects</span>
+        </a>
+        <a class="t-link <?php echo $isOn('/super/grades'); ?>" href="<?php echo public_url('super/grades/'); ?>">
+            <i class="fas fa-graduation-cap"></i><span>Grades</span>
+        </a>
+        <a class="t-link <?php echo $isOn('/super/publishers'); ?>" href="<?php echo public_url('super/publishers/'); ?>">
+            <i class="fas fa-building"></i><span>Publishers</span>
         </a>
         <a class="t-link <?php echo $isOn('/super/suppliers'); ?>" href="<?php echo public_url('super/suppliers/'); ?>">
             <i class="fas fa-truck-field"></i><span>Suppliers</span>
         </a>
         <a class="t-link <?php echo $isOn('/super/stock'); ?>" href="<?php echo public_url('super/stock/new.php'); ?>">
             <i class="fas fa-truck-loading"></i><span>Record stock</span>
+        </a>
+        <?php endif; ?>
+        <?php if (TenantContext::can(Capabilities::STOCK_ENTER)): ?>
+        <a class="t-link <?php echo $isOn('/super/stationery'); ?>" href="<?php echo public_url('super/stationery/new.php'); ?>">
+            <i class="fas fa-pen-ruler"></i><span>Record stationery</span>
+        </a>
+        <?php endif; ?>
+        <?php if (TenantContext::can(Capabilities::INVENTORY_EDIT)): ?>
+        <a class="t-link <?php echo $onStationeryCats ? 'active' : ''; ?>" href="<?php echo public_url('super/categories/') . '?type=stationery'; ?>">
+            <i class="fas fa-shapes"></i><span>Stationery categories</span>
         </a>
         <?php endif; ?>
 
@@ -90,7 +121,7 @@ $isOn = function (string $needle) use ($uri): string {
 </aside>
 
 <style>
-:root { --t-bg:#fff; --t-bg2:var(--pos-red-light,#fef2f2); --t-line:#eef0f4; --t-accent:var(--pos-red,#dc2626); --t-text:#5b6070; }
+:root { --t-bg:#fff; --t-bg2:var(--pos-green-light,#f0fdf4); --t-line:#eef0f4; --t-accent:var(--pos-green,#16a34a); --t-text:#5b6070; }
 .t-sidebar { width:264px; background:var(--t-bg); color:var(--t-text); position:fixed; left:0; top:0; height:100vh; overflow-y:auto; z-index:1001; transition:transform .3s ease; border-right:1px solid var(--t-line); }
 .t-brand { padding:24px 20px; border-bottom:1px solid var(--t-line); text-align:center; position:relative; }
 .t-logo { height:44px; max-width:160px; object-fit:contain; border-radius:8px; padding:4px; }
@@ -105,8 +136,8 @@ $isOn = function (string $needle) use ($uri): string {
 .t-link.active { background:var(--t-bg2); color:var(--t-accent); font-weight:700; box-shadow:inset 3px 0 0 var(--t-accent); }
 .t-link.active i { color:var(--t-accent); }
 .t-soon { margin-left:auto; font-size:.62rem; font-style:normal; background:#f3f4f7; color:#9aa0ac; padding:1px 7px; border-radius:999px; }
-.t-danger { color:#dc2626; }
-.t-danger:hover { background:#fee2e2; color:#991b1b; }
+.t-danger { color:#64748b; }
+.t-danger:hover { background:#f1f5f9; color:#334155; }
 .t-nav hr { border:0; border-top:1px solid var(--t-line); margin:12px 0; }
 .t-sidebar-toggle, .t-close { display:none; }
 .t-sidebar-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000; opacity:0; display:none; transition:opacity .3s; }

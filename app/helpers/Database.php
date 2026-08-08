@@ -25,6 +25,13 @@ class Database
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,                 // real prepared stmts
             ]);
+            // Match app.php's date_default_timezone_set('Africa/Nairobi') — a
+            // fixed +03:00 offset (Kenya has no DST) so NOW()/CURDATE() in
+            // MySQL always agree with PHP's time()/date(), regardless of the
+            // server OS's own timezone. Without this, MySQL defaults to
+            // "SYSTEM" (whatever the host happens to be set to), which is
+            // exactly the mismatch that made offers look inactive.
+            self::$pdo->exec("SET time_zone = '+03:00'");
         }
         return self::$pdo;
     }

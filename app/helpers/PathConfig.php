@@ -32,6 +32,22 @@ if (!defined('BASE_URL')) {
 
     if ($documentRoot !== '' && $documentRoot === $publicRoot) {
         $baseUrl = '';
+        foreach ([$scriptName, $requestUri] as $value) {
+            if ($value === '') {
+                continue;
+            }
+            $path = parse_url($value, PHP_URL_PATH) ?: $value;
+            $publicMarker = '/public';
+            $pos = strpos($path, $publicMarker);
+            if ($pos !== false) {
+                $prefix = substr($path, 0, $pos);
+                $candidate = $prefix . $publicMarker;
+                if ($candidate !== '/public') {
+                    $baseUrl = $candidate;
+                }
+                break;
+            }
+        }
     } elseif ($documentRoot !== '' && strpos($publicRoot, $documentRoot . '/') === 0) {
         $relative = substr($publicRoot, strlen($documentRoot));
         $baseUrl = '/' . ltrim($relative, '/');

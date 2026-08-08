@@ -103,6 +103,35 @@ class StaffService
         return ['ok' => true, 'error' => null];
     }
 
+    /** Owner resets a staff member's PIN (no current-PIN check — the owner is trusted). */
+    public function setPin(int $tenantId, int $userId, string $newPin): array
+    {
+        if (!$this->belongsToTenant($tenantId, $userId)) {
+            return ['ok' => false, 'error' => 'Staff not found.'];
+        }
+        if (!preg_match('/^\d{4,6}$/', $newPin)) {
+            return ['ok' => false, 'error' => 'PIN must be 4 to 6 digits.'];
+        }
+        if ($this->pinTaken($tenantId, $newPin, $userId)) {
+            return ['ok' => false, 'error' => 'That PIN is already used by another staff member. Choose a different one.'];
+        }
+        $this->db->prepare('UPDATE users SET pin_hash = ? WHERE id = ? AND tenant_id = ?')
+            ->execute([password_hash($newPin, PASSWORD_DEFAULT), $userId, $tenantId]);
+        return ['ok' => true, 'error' => null];
+    }
+
+    /** Staff member changes their own PIN — requires the current one to match first. */
+    public function changeOwnPin(int $tenantId, int $userId, string $currentPin, string $newPin): array
+    {
+        $stmt = $this->db->prepare('SELECT pin_hash FROM users WHERE id = ? AND tenant_id = ? LIMIT 1');
+        $stmt->execute([$userId, $tenantId]);
+        $hash = $stmt->fetchColumn();
+        if (!$hash || !password_verify($currentPin, $hash)) {
+            return ['ok' => false, 'error' => 'Your current PIN is incorrect.'];
+        }
+        return $this->setPin($tenantId, $userId, $newPin);
+    }
+
     private function belongsToTenant(int $tenantId, int $userId): bool
     {
         $stmt = $this->db->prepare(

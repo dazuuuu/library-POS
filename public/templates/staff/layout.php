@@ -19,7 +19,7 @@ $shopName = $__tenant['name'] ?? 'My Shop';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        :root{ --pos-red:#dc2626; --pos-red-dark:#b91c1c; --pos-red-light:#fef2f2; --pos-bg:#f7f7fb; --pos-ink:#1f2330; }
+        :root{ --pos-green:#16a34a; --pos-green-dark:#15803d; --pos-green-light:#f0fdf4; --pos-bg:#f7f7fb; --pos-ink:#1f2330; }
         *{box-sizing:border-box;} body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:var(--pos-bg);color:var(--pos-ink);}
         .t-wrap{display:flex;min-height:100vh;}
         .t-main{flex:1;margin-left:264px;padding:26px 30px;width:calc(100% - 264px);}
@@ -31,13 +31,13 @@ $shopName = $__tenant['name'] ?? 'My Shop';
         @media (max-width:576px){ .t-main{padding:14px;} .t-topbar h1{font-size:1.15rem;} }
 
         /* ---- site-wide red/light POS theme ---- */
-        .btn-primary{ --bs-btn-bg:var(--pos-red); --bs-btn-border-color:var(--pos-red); --bs-btn-hover-bg:var(--pos-red-dark); --bs-btn-hover-border-color:var(--pos-red-dark); --bs-btn-active-bg:var(--pos-red-dark); --bs-btn-active-border-color:var(--pos-red-dark); --bs-btn-disabled-bg:var(--pos-red); --bs-btn-disabled-border-color:var(--pos-red); }
-        .btn-outline-primary{ --bs-btn-color:var(--pos-red); --bs-btn-border-color:var(--pos-red); --bs-btn-hover-bg:var(--pos-red); --bs-btn-hover-border-color:var(--pos-red); --bs-btn-active-bg:var(--pos-red); --bs-btn-active-border-color:var(--pos-red); }
-        a{ color:var(--pos-red); }
-        .text-primary{ color:var(--pos-red) !important; }
-        .bg-primary{ background-color:var(--pos-red) !important; }
-        .badge.bg-primary{ background-color:var(--pos-red) !important; }
-        .form-control:focus, .form-select:focus{ border-color:var(--pos-red); box-shadow:0 0 0 .2rem rgba(220,38,38,.12); }
+        .btn-primary{ --bs-btn-bg:var(--pos-green); --bs-btn-border-color:var(--pos-green); --bs-btn-hover-bg:var(--pos-green-dark); --bs-btn-hover-border-color:var(--pos-green-dark); --bs-btn-active-bg:var(--pos-green-dark); --bs-btn-active-border-color:var(--pos-green-dark); --bs-btn-disabled-bg:var(--pos-green); --bs-btn-disabled-border-color:var(--pos-green); }
+        .btn-outline-primary{ --bs-btn-color:var(--pos-green); --bs-btn-border-color:var(--pos-green); --bs-btn-hover-bg:var(--pos-green); --bs-btn-hover-border-color:var(--pos-green); --bs-btn-active-bg:var(--pos-green); --bs-btn-active-border-color:var(--pos-green); }
+        a{ color:var(--pos-green); }
+        .text-primary{ color:var(--pos-green) !important; }
+        .bg-primary{ background-color:var(--pos-green) !important; }
+        .badge.bg-primary{ background-color:var(--pos-green) !important; }
+        .form-control:focus, .form-select:focus{ border-color:var(--pos-green); box-shadow:0 0 0 .2rem rgba(22,163,74,.12); }
         .card{ border-radius:14px; }
         .table thead th{ color:#8a8f9c; font-size:.72rem; letter-spacing:.04em; }
     </style>

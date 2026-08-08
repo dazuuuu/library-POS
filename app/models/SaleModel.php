@@ -6,6 +6,12 @@ class SaleModel extends Model
 {
     protected string $table = 'sales';
 
+    public function __construct(?\PDO $db = null)
+    {
+        parent::__construct($db);
+        $this->ensureSchema();
+    }
+
     /**
      * Record a sale atomically. Supports cash / mpesa / split (all fully paid)
      * and CREDIT (customer owes all or part; an optional deposit is taken now).
@@ -41,10 +47,8 @@ class SaleModel extends Model
             $db->beginTransaction();
 
             $priceCol = $saleType === 'wholesale' ? 'wholesale_price' : 'retail_price';
-            $sel = $db->prepare(
-                "SELECT id, name, selling_price, wholesale_price, retail_price, quantity, unit
-                   FROM products WHERE id = ? AND tenant_id = ? AND status = 'active' FOR UPDATE"
-            );
+            $selSql = "SELECT id, name, selling_price, wholesale_price, retail_price, quantity, unit FROM products WHERE id = ? AND tenant_id = ? AND status = 'active' FOR UPDATE";
+            $sel = $db->prepare($selSql);
             $subtotal = 0.0;
             $lines = [];
             foreach ($items as $it) {
@@ -195,6 +199,7 @@ class SaleModel extends Model
             return ['ok' => true, 'sale_id' => $saleId, 'receipt_number' => $receipt, 'amount_due' => $amountDue, 'errors' => []];
         } catch (\Throwable $e) {
             if ($db->inTransaction()) { $db->rollBack(); }
+            error_log('SaleModel::record failed: ' . $e->getMessage());
             return ['ok' => false, 'errors' => ['_' => 'Could not complete the sale. Please try again.']];
         }
     }
@@ -311,6 +316,164 @@ class SaleModel extends Model
         $stmt = $this->db->prepare("SELECT * FROM sale_items WHERE sale_id = ? AND tenant_id = ? ORDER BY id ASC");
         $stmt->execute([$saleId, $tid]);
         return $stmt->fetchAll();
+    }
+
+    /** Line items for many sales at once, keyed by sale_id — one query
+     *  instead of one per row, for the sales list "Products" column. */
+    public function itemsForMany(array $saleIds): array
+    {
+        $saleIds = array_values(array_unique(array_map('intval', $saleIds)));
+        if (!$saleIds) { return []; }
+        $tid = \TenantContext::tenantId();
+        $in = implode(',', array_fill(0, count($saleIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT sale_id, product_name, quantity, line_total FROM sale_items
+              WHERE tenant_id = ? AND sale_id IN ($in) ORDER BY id ASC"
+        );
+        $stmt->execute(array_merge([$tid], $saleIds));
+        $out = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $out[(int) $r['sale_id']][] = ['name' => $r['product_name'], 'qty' => (float) $r['quantity'], 'total' => (float) $r['line_total']];
+        }
+        return $out;
+    }
+
+    /** This customer's completed sales (any status but voided), newest
+     *  first — matched on customer_name, trimmed and case-insensitive since
+     *  it's free text typed at checkout, not a real customer record. */
+    public function forCustomer(string $name, int $limit = 200): array
+    {
+        $name = trim($name);
+        if ($name === '') { return []; }
+        $tid = \TenantContext::tenantId();
+        $stmt = $this->db->prepare(
+            "SELECT s.*, u.username AS staff_name
+               FROM sales s
+          LEFT JOIN users u ON u.id = s.staff_id
+              WHERE s.tenant_id = ? AND s.status <> 'voided' AND LOWER(TRIM(s.customer_name)) = LOWER(?)
+           ORDER BY s.created_at DESC, s.id DESC
+              LIMIT " . (int) $limit
+        );
+        $stmt->execute([$tid, $name]);
+        return $stmt->fetchAll();
+    }
+
+    /** Compact "2× Pen, 1× Book +3 more" summary for a sale/order's line
+     *  items, for the sales list "Products" column. Full list is in the
+     *  title tooltip. Shared by both the staff and owner Sales pages. */
+    public static function itemsSummaryHtml(array $items, int $max = 2): string
+    {
+        if (!$items) { return '<span class="text-muted">—</span>'; }
+        $fmtQty = fn($q) => rtrim(rtrim(number_format((float) $q, 2), '0'), '.');
+        $parts = array_map(fn($i) => $fmtQty($i['qty']) . '× ' . $i['name'], $items);
+        $shown = array_slice($parts, 0, $max);
+        $extra = count($parts) - count($shown);
+        $html = htmlspecialchars(implode(', ', $shown));
+        if ($extra > 0) { $html .= ' <span class="text-muted">+' . $extra . ' more</span>'; }
+        return '<span title="' . htmlspecialchars(implode(', ', $parts)) . '">' . $html . '</span>';
+    }
+
+    private function ensureSchema(): void
+    {
+        $this->ensureTable('sales', "
+            CREATE TABLE IF NOT EXISTS sales (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                staff_id INT NOT NULL,
+                sale_type VARCHAR(20) NULL,
+                receipt_number VARCHAR(32) NOT NULL,
+                payment_method VARCHAR(20) NOT NULL,
+                payment_status VARCHAR(20) NULL,
+                total DECIMAL(12,2) NOT NULL DEFAULT 0,
+                subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+                discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+                amount_due DECIMAL(12,2) NOT NULL DEFAULT 0,
+                amount_given DECIMAL(12,2) NULL,
+                change_given DECIMAL(12,2) NULL,
+                cash_amount DECIMAL(12,2) NULL,
+                mpesa_amount DECIMAL(12,2) NULL,
+                customer_name VARCHAR(120) NULL,
+                customer_phone VARCHAR(30) NULL,
+                customer_email VARCHAR(255) NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'completed',
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_sale_receipt (tenant_id, receipt_number),
+                KEY idx_sale_tenant (tenant_id),
+                KEY idx_sale_staff (staff_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $this->ensureTable('sale_items', "
+            CREATE TABLE IF NOT EXISTS sale_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                sale_id INT NOT NULL,
+                product_id INT NULL,
+                product_name VARCHAR(160) NOT NULL,
+                unit VARCHAR(20) NOT NULL DEFAULT 'piece',
+                unit_price DECIMAL(12,2) NOT NULL,
+                price_type VARCHAR(20) NULL,
+                quantity DECIMAL(12,2) NOT NULL,
+                line_total DECIMAL(12,2) NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_item_sale (sale_id),
+                KEY idx_item_tenant (tenant_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $this->ensureTable('sale_payments', "
+            CREATE TABLE IF NOT EXISTS sale_payments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                sale_id INT NOT NULL,
+                staff_id INT NOT NULL,
+                amount DECIMAL(12,2) NOT NULL,
+                method VARCHAR(20) NOT NULL,
+                note VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_payment_sale (sale_id),
+                KEY idx_payment_tenant (tenant_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $this->ensureColumn('sales', 'sale_type', "ALTER TABLE sales ADD COLUMN sale_type VARCHAR(20) NULL AFTER staff_id");
+        $this->ensureColumn('sales', 'payment_status', "ALTER TABLE sales ADD COLUMN payment_status VARCHAR(20) NULL AFTER payment_method");
+        $this->ensureColumn('sales', 'subtotal', "ALTER TABLE sales ADD COLUMN subtotal DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER total");
+        $this->ensureColumn('sales', 'discount_amount', "ALTER TABLE sales ADD COLUMN discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER subtotal");
+        $this->ensureColumn('sales', 'amount_paid', "ALTER TABLE sales ADD COLUMN amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER discount_amount");
+        $this->ensureColumn('sales', 'amount_due', "ALTER TABLE sales ADD COLUMN amount_due DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER amount_paid");
+        $this->ensureColumn('sales', 'cash_amount', "ALTER TABLE sales ADD COLUMN cash_amount DECIMAL(12,2) NULL AFTER change_given");
+        $this->ensureColumn('sales', 'mpesa_amount', "ALTER TABLE sales ADD COLUMN mpesa_amount DECIMAL(12,2) NULL AFTER cash_amount");
+        $this->ensureColumn('sale_items', 'price_type', "ALTER TABLE sale_items ADD COLUMN price_type VARCHAR(20) NULL AFTER unit_price");
+    }
+
+    private function ensureTable(string $table, string $sql): void
+    {
+        try {
+            $this->db->query("SELECT 1 FROM `{$table}` LIMIT 1");
+        } catch (\PDOException $e) {
+            try { $this->db->exec($sql); } catch (\PDOException $ignored) {}
+        }
+    }
+
+    private function ensureColumn(string $table, string $column, string $sql): void
+    {
+        if ($this->columnExists($table, $column)) {
+            return;
+        }
+        try { $this->db->exec($sql); } catch (\PDOException $ignored) {}
+    }
+
+    private function columnExists(string $table, string $column): bool
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?");
+            $stmt->execute([$table, $column]);
+            return (int) $stmt->fetchColumn() > 0;
+        } catch (\PDOException $ignored) {
+            return false;
+        }
     }
 
     public function forStaff(int $staffId, int $limit = 500, ?string $date = null): array

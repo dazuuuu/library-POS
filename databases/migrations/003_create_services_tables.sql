@@ -1,5 +1,5 @@
--- Active: 1780050571987@@127.0.0.1@3306@modern_db
-USE ismano_db;
+-- Active: 1780050571987@@127.0.0.1@3306@archimedes_db
+USE archimedes_db;
 
 -- Create services table
 CREATE TABLE IF NOT EXISTS services (

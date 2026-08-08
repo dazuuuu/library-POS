@@ -9,6 +9,12 @@ class HeldOrderModel extends Model
 {
     protected string $table = 'held_orders';
 
+    public function __construct(?\PDO $db = null)
+    {
+        parent::__construct($db);
+        $this->ensureSchema();
+    }
+
     /** @param array $in customer_name, staff_id, items[{product_id,quantity}] */
     public function hold(array $in): array
     {
@@ -79,6 +85,44 @@ class HeldOrderModel extends Model
         $stmt = $this->db->prepare('SELECT * FROM held_order_items WHERE held_order_id = ? AND tenant_id = ? ORDER BY id ASC');
         $stmt->execute([$heldOrderId, $tid]);
         return $stmt->fetchAll();
+    }
+
+    private function ensureSchema(): void
+    {
+        $this->ensureTable('held_orders', "
+            CREATE TABLE IF NOT EXISTS held_orders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                customer_name VARCHAR(160) NOT NULL,
+                staff_id INT NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_held_tenant (tenant_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $this->ensureTable('held_order_items', "
+            CREATE TABLE IF NOT EXISTS held_order_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT NOT NULL,
+                held_order_id INT NOT NULL,
+                product_id INT NULL,
+                product_name VARCHAR(160) NOT NULL,
+                unit_price DECIMAL(12,2) NOT NULL,
+                quantity DECIMAL(12,2) NOT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_held_item_order (held_order_id),
+                KEY idx_held_item_tenant (tenant_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+
+    private function ensureTable(string $table, string $sql): void
+    {
+        try {
+            $this->db->query("SELECT 1 FROM `{$table}` LIMIT 1");
+        } catch (\PDOException $e) {
+            try { $this->db->exec($sql); } catch (\PDOException $ignored) {}
+        }
     }
 
     /** Delete a held order and its items — used both for "Discard" and after a successful resume→checkout. */

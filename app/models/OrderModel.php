@@ -20,6 +20,10 @@ class OrderModel extends Model
      *                  channel: 'walkin' (Home — checkout pays immediately, no
      *                  invoice) or 'tab' (Orders — starts unpaid, this IS the
      *                  invoice). Defaults to 'tab' for backward compatibility.
+     *                  Optional: discount_amount (negotiated off the subtotal,
+     *                  clamped so the total never goes below zero),
+     *                  customer_email / customer_phone (for emailing an
+     *                  invoice/delivery note on a credit sale later).
      */
     public function open(array $in): array
     {
@@ -61,6 +65,19 @@ class OrderModel extends Model
             if (!$added['ok']) {
                 $db->rollBack();
                 return $added;
+            }
+
+            $discountIn = round((float) ($in['discount_amount'] ?? 0), 2);
+            $email = trim((string) ($in['customer_email'] ?? ''));
+            $phone = trim((string) ($in['customer_phone'] ?? ''));
+            if ($discountIn > 0 || $email !== '' || $phone !== '') {
+                $sub = $db->prepare('SELECT subtotal FROM orders WHERE id = ?');
+                $sub->execute([$orderId]);
+                $subtotal = (float) $sub->fetchColumn();
+                $discount = min(max($discountIn, 0), $subtotal); // never negative, never more than the subtotal
+                $newTotal = round($subtotal - $discount, 2);
+                $db->prepare('UPDATE orders SET discount_amount = ?, total = ?, customer_email = ?, customer_phone = ? WHERE id = ?')
+                    ->execute([$discount, $newTotal, $email !== '' ? $email : null, $phone !== '' ? $phone : null, $orderId]);
             }
 
             $db->commit();
@@ -118,7 +135,13 @@ class OrderModel extends Model
     /** Shared item-insert + stock-decrement + total-recalc, used by open() and addItems(). */
     private function insertItems(\PDO $db, int $tid, int $orderId, array $items, int $staffId): array
     {
-        $sel = $db->prepare("SELECT id, name, selling_price, retail_price, quantity, unit FROM products WHERE id = ? AND tenant_id = ? AND status = 'active' FOR UPDATE");
+        $selSql = "SELECT id, name, selling_price, retail_price, quantity, unit
+                     FROM products WHERE id = ? AND tenant_id = ? AND status IN ('active','archived') FOR UPDATE";
+        try {
+            $sel = $db->prepare($selSql);
+        } catch (\PDOException $e) {
+            $sel = $db->prepare("SELECT id, name, selling_price, retail_price, quantity, unit FROM products WHERE id = ? AND tenant_id = ? AND status IN ('active','archived') FOR UPDATE");
+        }
         $insItem = $db->prepare(
             'INSERT INTO order_items (tenant_id, order_id, product_id, product_name, unit_price, quantity, line_total, added_by)
              VALUES (?,?,?,?,?,?,?,?)'
@@ -136,7 +159,16 @@ class OrderModel extends Model
             if ($qty > (float) $p['quantity']) {
                 return ['ok' => false, 'errors' => ['_' => "Not enough stock for {$p['name']} — only " . rtrim(rtrim(number_format((float) $p['quantity'], 2), '0'), '.') . ' left.']];
             }
-            $unitPrice = (float) ($p['retail_price'] ?: $p['selling_price']);
+            // Offer-aware: charges the live offer price when one is running,
+            // the regular price otherwise — same rule everywhere (ProductModel::effectivePrice).
+            $offerRow = $p;
+            if (!array_key_exists('offer_price', $offerRow)) {
+                $offerRow['offer_price'] = null;
+                $offerRow['offer_starts_at'] = null;
+                $offerRow['offer_ends_at'] = null;
+            }
+            $unitPrice = ProductModel::effectivePrice($offerRow)['price'];
+            if ($unitPrice <= 0) { $unitPrice = (float) ($p['retail_price'] ?: $p['selling_price']); }
             $lineTotal = round($unitPrice * $qty, 2);
 
             $insItem->execute([$tid, $orderId, $pid, $p['name'], $unitPrice, $qty, $lineTotal, $staffId]);
@@ -291,6 +323,72 @@ class OrderModel extends Model
         $stmt = $this->db->prepare('SELECT * FROM order_items WHERE order_id = ? AND tenant_id = ? ORDER BY id ASC');
         $stmt->execute([$orderId, $tid]);
         return $stmt->fetchAll();
+    }
+
+    /** Line items for many orders at once, keyed by order_id — one query
+     *  instead of one per row, for the sales list "Products" column. */
+    public function itemsForMany(array $orderIds): array
+    {
+        $orderIds = array_values(array_unique(array_map('intval', $orderIds)));
+        if (!$orderIds) { return []; }
+        $tid = \TenantContext::tenantId();
+        $in = implode(',', array_fill(0, count($orderIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT order_id, product_name, quantity, line_total FROM order_items
+              WHERE tenant_id = ? AND order_id IN ($in) ORDER BY id ASC"
+        );
+        $stmt->execute(array_merge([$tid], $orderIds));
+        $out = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $out[(int) $r['order_id']][] = ['name' => $r['product_name'], 'qty' => (float) $r['quantity'], 'total' => (float) $r['line_total']];
+        }
+        return $out;
+    }
+
+    /** This customer's tabs (any status but void), newest first — matched on
+     *  table_name, trimmed and case-insensitive since it's free text typed
+     *  at checkout, not a real customer record. */
+    public function forCustomer(string $name, int $limit = 200): array
+    {
+        $name = trim($name);
+        if ($name === '') { return []; }
+        $tid = \TenantContext::tenantId();
+        $stmt = $this->db->prepare(
+            "SELECT o.*, u.username AS staff_name
+               FROM orders o
+          LEFT JOIN users u ON u.id = o.opened_by
+              WHERE o.tenant_id = ? AND o.status <> 'void' AND LOWER(TRIM(o.table_name)) = LOWER(?)
+           ORDER BY o.created_at DESC, o.id DESC
+              LIMIT " . (int) $limit
+        );
+        $stmt->execute([$tid, $name]);
+        return $stmt->fetchAll();
+    }
+
+    /** Add/update a customer's contact info on an existing tab (e.g. before emailing them). */
+    public function updateCustomerContact(int $orderId, ?string $email, ?string $phone): array
+    {
+        $tid = \TenantContext::tenantId();
+        $email = $email !== null ? trim($email) : null;
+        $phone = $phone !== null ? trim($phone) : null;
+        if ($email !== null && $email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ['ok' => false, 'error' => 'Enter a valid email address.'];
+        }
+        $stmt = $this->db->prepare('UPDATE orders SET customer_email = ?, customer_phone = ? WHERE id = ? AND tenant_id = ?');
+        $stmt->execute([$email !== '' ? $email : null, $phone !== '' ? $phone : null, $orderId, $tid]);
+        return ['ok' => true, 'error' => null];
+    }
+
+    public function markInvoiceSent(int $orderId): void
+    {
+        $tid = \TenantContext::tenantId();
+        $this->db->prepare('UPDATE orders SET invoice_sent_at = NOW() WHERE id = ? AND tenant_id = ?')->execute([$orderId, $tid]);
+    }
+
+    public function markDeliveryNoteSent(int $orderId): void
+    {
+        $tid = \TenantContext::tenantId();
+        $this->db->prepare('UPDATE orders SET delivery_note_sent_at = NOW() WHERE id = ? AND tenant_id = ?')->execute([$orderId, $tid]);
     }
 
     // ===== owner reporting: paid orders, shaped like SaleModel's rows ======

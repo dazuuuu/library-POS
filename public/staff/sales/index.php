@@ -34,6 +34,17 @@ $todaySum   = Models\SaleModel::summarize($todaySales);
 $sales = $period === 'today' ? $todaySales : my_sales($SA, $OR, $myId, $period);
 $sum   = $period === 'today' ? $todaySum : Models\SaleModel::summarize($sales);
 
+// Batch-load line items for the products column — one query per source,
+// not one per row.
+$saleIds  = array_column(array_filter($sales, fn($s) => ($s['source'] ?? 'sale') === 'sale'), 'id');
+$orderIds = array_column(array_filter($sales, fn($s) => ($s['source'] ?? 'sale') === 'order'), 'id');
+$itemsBySale  = $SA->itemsForMany($saleIds);
+$itemsByOrder = $OR->itemsForMany($orderIds);
+foreach ($sales as &$s) {
+    $s['items'] = (($s['source'] ?? 'sale') === 'order' ? $itemsByOrder : $itemsBySale)[(int) $s['id']] ?? [];
+}
+unset($s);
+
 $__tenant     = (new Models\TenantModel($pdo))->find(TenantContext::tenantId());
 $tenantSlug   = $__tenant['slug'] ?? '';
 $shopName     = $__tenant['name'] ?? 'Our Shop';
@@ -95,13 +106,20 @@ ob_start();
     <?php else: ?>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
-          <thead><tr class="text-muted small text-uppercase"><th>Receipt</th><th>When</th><th>Customer</th><th>Pay</th><th class="text-end">Total</th><th></th></tr></thead>
+          <thead><tr class="text-muted small text-uppercase"><th>Receipt</th><th>When</th><th>Customer</th><th>Products</th><th>Pay</th><th class="text-end">Total</th><th></th></tr></thead>
           <tbody>
             <?php foreach ($sales as $s): ?>
             <tr>
               <td class="fw-semibold small"><?php echo htmlspecialchars($s['receipt_number']); ?></td>
               <td class="small text-nowrap"><?php echo date('j M, g:i a', strtotime($s['created_at'])); ?></td>
-              <td class="small"><?php echo htmlspecialchars($s['customer_name'] ?: '—'); ?></td>
+              <td class="small">
+                <?php if ($s['customer_name'] && $s['customer_name'] !== 'Walk-in Customer'): ?>
+                  <a href="<?php echo public_url('staff/sales/customer.php?name=' . urlencode($s['customer_name'])); ?>"><?php echo htmlspecialchars($s['customer_name']); ?></a>
+                <?php else: ?>
+                  <?php echo htmlspecialchars($s['customer_name'] ?: '—'); ?>
+                <?php endif; ?>
+              </td>
+              <td class="small"><?php echo Models\SaleModel::itemsSummaryHtml($s['items']); ?></td>
               <td class="small"><?php
                 $pm = $s['payment_method'] ?? 'cash';
                 echo $pm === 'split' ? '<span class="badge bg-secondary">Split</span>' : ($pm === 'mpesa' ? '<span class="badge bg-success">M-Pesa</span>' : '<span class="badge bg-light text-dark">Cash</span>');

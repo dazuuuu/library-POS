@@ -6,8 +6,45 @@ class CategoryModel extends Model
 {
     protected string $table = 'categories';
 
-    public function create(string $name, ?string $imagePath = null): array
+    public const TYPES = ['subject', 'stationery'];
+
+    public function __construct(?\PDO $db = null)
     {
+        parent::__construct($db);
+        $this->ensureSchema();
+    }
+
+    /** Self-heals a `categories` table created before Stationery existed —
+     *  same idea as ProductModel's ensureSchema(): re-uploading the PHP is
+     *  enough, no manual SQL needed on the live database. */
+    private function ensureSchema(): void
+    {
+        try {
+            $this->db->query("SELECT `type` FROM `categories` LIMIT 1");
+        } catch (\PDOException $e) {
+            try {
+                $this->db->exec("ALTER TABLE `categories` ADD COLUMN `type` ENUM('subject','stationery') NOT NULL DEFAULT 'subject' AFTER `name`");
+            } catch (\PDOException $ignored) {
+                return; // table missing entirely — nothing more to do here
+            }
+            // Widen the old (tenant_id, name) unique key to (tenant_id, type,
+            // name) so a Subject and a Stationery category can share a name.
+            try {
+                $this->db->exec('ALTER TABLE `categories` DROP INDEX `uq_cat_tenant_name`');
+            } catch (\PDOException $ignored) {
+                // Already gone/renamed — fine.
+            }
+            try {
+                $this->db->exec('ALTER TABLE `categories` ADD UNIQUE KEY `uq_cat_tenant_type_name` (`tenant_id`,`type`,`name`)');
+            } catch (\PDOException $ignored) {
+                // Already exists — fine.
+            }
+        }
+    }
+
+    public function create(string $name, ?string $imagePath = null, string $type = 'subject'): array
+    {
+        $type = in_array($type, self::TYPES, true) ? $type : 'subject';
         $name = trim($name);
         if ($name === '') {
             return ['ok' => false, 'id' => null, 'error' => 'Category name is required.'];
@@ -15,11 +52,11 @@ class CategoryModel extends Model
         if (strlen($name) > 120) {
             return ['ok' => false, 'id' => null, 'error' => 'Category name is too long.'];
         }
-        if ($this->nameTaken($name)) {
+        if ($this->nameTaken($name, null, $type)) {
             return ['ok' => false, 'id' => null, 'error' => 'You already have a category with that name.'];
         }
         try {
-            $id = $this->insert(['name' => $name, 'image_path' => $imagePath, 'status' => 'active']);
+            $id = $this->insert(['name' => $name, 'type' => $type, 'image_path' => $imagePath, 'status' => 'active']);
             return ['ok' => true, 'id' => $id, 'error' => null];
         } catch (\PDOException $e) {
             if ($e->getCode() === '23000') {
@@ -36,7 +73,9 @@ class CategoryModel extends Model
         if ($name === '') {
             return ['ok' => false, 'error' => 'Category name is required.'];
         }
-        if ($this->nameTaken($name, $id)) {
+        $row = $this->find($id);
+        $type = $row['type'] ?? 'subject';
+        if ($this->nameTaken($name, $id, $type)) {
             return ['ok' => false, 'error' => 'You already have a category with that name.'];
         }
         $data = ['name' => $name];
@@ -66,9 +105,9 @@ class CategoryModel extends Model
         return ['ok' => true, 'error' => null];
     }
 
-    public function nameTaken(string $name, ?int $exceptId = null): bool
+    public function nameTaken(string $name, ?int $exceptId = null, string $type = 'subject'): bool
     {
-        foreach ($this->all(['name' => trim($name)]) as $row) {
+        foreach ($this->all(['name' => trim($name), 'type' => $type]) as $row) {
             if ($exceptId === null || (int) $row['id'] !== $exceptId) {
                 return true;
             }
@@ -76,10 +115,48 @@ class CategoryModel extends Model
         return false;
     }
 
-    /** Categories with their subcategory + product counts. */
-    public function listWithCounts(): array
+    /** Reuse the existing category for this name (within this type), or create one. Blank name -> null. */
+    public function findOrCreate(string $name, string $type = 'subject'): ?int
     {
-        $cats = $this->all([], 'name ASC');
+        $type = in_array($type, self::TYPES, true) ? $type : 'subject';
+        $name = trim($name);
+        if ($name === '') {
+            return null;
+        }
+        $rows = $this->all(['name' => $name, 'type' => $type]);
+        if ($rows) {
+            return (int) $rows[0]['id'];
+        }
+        $res = $this->create($name, null, $type);
+        if ($res['ok']) {
+            return (int) $res['id'];
+        }
+        // Lost a create race — the row that won it now exists.
+        $rows = $this->all(['name' => $name, 'type' => $type]);
+        return $rows ? (int) $rows[0]['id'] : null;
+    }
+
+    /** Matching names for the type-ahead box, "starts with" ranked first. */
+    public function suggestions(string $q, int $limit = 8, string $type = 'subject'): array
+    {
+        $type = in_array($type, self::TYPES, true) ? $type : 'subject';
+        $tid = \TenantContext::tenantId();
+        $q = trim($q);
+        $stmt = $this->db->prepare(
+            "SELECT id, name FROM categories
+              WHERE tenant_id = ? AND type = ? AND name LIKE ?
+           ORDER BY (name LIKE ?) DESC, name ASC
+              LIMIT " . (int) $limit
+        );
+        $stmt->execute([$tid, $type, '%' . $q . '%', $q . '%']);
+        return $stmt->fetchAll();
+    }
+
+    /** Categories with their subcategory + product counts. */
+    public function listWithCounts(string $type = 'subject'): array
+    {
+        $type = in_array($type, self::TYPES, true) ? $type : 'subject';
+        $cats = $this->all(['type' => $type], 'name ASC');
         if (!$cats) {
             return [];
         }

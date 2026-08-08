@@ -1,6 +1,6 @@
--- Active: 1780050571987@@127.0.0.1@3306@modern_db
+-- Active: 1780050571987@@127.0.0.1@3306@archimedes_db
 -- databases/migrations/002_create_projects_tables.sql
-USE modern_db;
+USE archimedes_db;
 
 -- Create project categories table
 CREATE TABLE IF NOT EXISTS project_categories (

@@ -1,7 +1,7 @@
-/* 2in1 POS service worker — makes the app installable + fast.
+/* Archimedes Elite Bookshop POS service worker — makes the app installable + fast.
    Pages are always network-first (so live data + auth stay correct);
    only static assets and the login shell are cached. */
-const CACHE = '2in1-pos-v1';
+const CACHE = 'archimedes-pos-v2';
 // Derived from this script's own URL, not hard-coded — works whatever
 // folder the app is deployed under.
 const BASE  = new URL('.', self.location).pathname.replace(/\/$/, '');
@@ -32,9 +32,38 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
+  // Let redirects pass through normally; the browser rejects a redirected response
+  // when the service worker tries to handle it with a non-follow mode.
+  if (req.redirect === 'manual' || req.redirect === 'error') {
+    return;
+  }
+
+  const fallbackResponse = () =>
+    new Response('<!doctype html><html><body>Offline</body></html>', {
+      status: 503,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' }
+    });
+
+  const networkThenCache = (request) =>
+    fetch(request, { redirect: 'follow' })
+      .then((response) => {
+        if (!response || !response.ok) {
+          throw new Error('Bad response');
+        }
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        return response;
+      })
+      .catch(() =>
+        caches.match(request).then((hit) => {
+          if (hit) return hit;
+          return caches.match(BASE + '/').then((shellHit) => shellHit || fallbackResponse());
+        })
+      );
+
   // Page navigations: network-first, fall back to the cached login shell offline.
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match(BASE + '/')));
+    event.respondWith(networkThenCache(req));
     return;
   }
 
@@ -43,16 +72,12 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.match(req).then((hit) => {
         if (hit) return hit;
-        return fetch(req).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-          return res;
-        });
+        return networkThenCache(req);
       })
     );
     return;
   }
 
   // Everything else: network, fall back to cache if offline.
-  event.respondWith(fetch(req).catch(() => caches.match(req)));
+  event.respondWith(networkThenCache(req));
 });

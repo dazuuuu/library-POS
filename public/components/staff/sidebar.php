@@ -36,7 +36,7 @@ $isOn = function (string $needle) use ($uri): string {
 
         <?php if (TenantContext::can(Capabilities::SALES_RECORD)): ?>
         <a class="t-link <?php echo $isOn('/staff/orders/held') ? '' : $isOn('/staff/orders'); ?>" href="<?php echo public_url('staff/orders/'); ?>">
-            <i class="fas fa-mug-hot"></i><span>Orders</span>
+            <i class="fas fa-receipt"></i><span>Orders</span>
         </a>
         <a class="t-link <?php echo $isOn('/staff/orders/held'); ?>" href="<?php echo public_url('staff/orders/held.php'); ?>">
             <i class="fas fa-pause"></i><span>Held orders</span>
@@ -57,6 +57,9 @@ $isOn = function (string $needle) use ($uri): string {
 
         <hr>
 
+        <a class="t-link <?php echo $isOn('/staff/change-pin'); ?>" href="<?php echo public_url('staff/change-pin.php'); ?>">
+            <i class="fas fa-key"></i><span>Change PIN</span>
+        </a>
         <a class="t-link t-danger" href="<?php echo public_url('auth/logout.php'); ?>">
             <i class="fas fa-arrow-right-from-bracket"></i><span>Logout</span>
         </a>
@@ -64,7 +67,7 @@ $isOn = function (string $needle) use ($uri): string {
 </aside>
 
 <style>
-:root { --t-bg:#fff; --t-bg2:var(--pos-red-light,#fef2f2); --t-line:#eef0f4; --t-accent:var(--pos-red,#dc2626); --t-text:#5b6070; }
+:root { --t-bg:#fff; --t-bg2:var(--pos-green-light,#f0fdf4); --t-line:#eef0f4; --t-accent:var(--pos-green,#16a34a); --t-text:#5b6070; }
 .t-sidebar { width:264px; background:var(--t-bg); color:var(--t-text); position:fixed; left:0; top:0; height:100vh; overflow-y:auto; z-index:1001; transition:transform .3s ease; border-right:1px solid var(--t-line); }
 .t-brand { padding:24px 20px; border-bottom:1px solid var(--t-line); text-align:center; position:relative; }
 .t-logo { height:44px; max-width:160px; object-fit:contain; border-radius:8px; padding:4px; }
@@ -78,8 +81,8 @@ $isOn = function (string $needle) use ($uri): string {
 .t-link:hover i{ color:#1f2330; }
 .t-link.active { background:var(--t-bg2); color:var(--t-accent); font-weight:700; box-shadow:inset 3px 0 0 var(--t-accent); }
 .t-link.active i { color:var(--t-accent); }
-.t-danger { color:#dc2626; }
-.t-danger:hover { background:#fee2e2; color:#991b1b; }
+.t-danger { color:#64748b; }
+.t-danger:hover { background:#f1f5f9; color:#334155; }
 .t-nav hr { border:0; border-top:1px solid var(--t-line); margin:12px 0; }
 .t-sidebar-toggle, .t-close { display:none; }
 .t-sidebar-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:1000; opacity:0; display:none; transition:opacity .3s; }

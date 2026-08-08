@@ -17,11 +17,16 @@ function sales_and_orders(Models\SaleModel $SA, Models\OrderModel $OR, string $p
 {
     $sales = $SA->forTenant(1000, $period);
     foreach ($sales as &$s) {
-        $s['receipt_url'] = 'staff/sales/receipt.php?id=' . (int) $s['id'];
+        $s['receipt_url'] = 'super/sales/receipt.php?id=' . (int) $s['id'];
         $s['source']      = 'sale';
     }
     unset($s);
-    $merged = array_merge($sales, $OR->forTenant(1000, $period));
+    $orders = $OR->forTenant(1000, $period);
+    foreach ($orders as &$o) {
+        $o['receipt_url'] = 'super/orders/receipt.php?id=' . (int) $o['id'];
+    }
+    unset($o);
+    $merged = array_merge($sales, $orders);
     usort($merged, fn($a, $b) => strtotime($b['created_at']) <=> strtotime($a['created_at']));
     return $merged;
 }
@@ -29,6 +34,17 @@ function sales_and_orders(Models\SaleModel $SA, Models\OrderModel $OR, string $p
 $sales      = sales_and_orders($SA, $OR, $period);
 $sum        = Models\SaleModel::summarize($sales);
 $staffBd    = Models\SaleModel::staffBreakdown($sales);
+
+// Batch-load line items for the products column — one query per source,
+// not one per row.
+$saleIds  = array_column(array_filter($sales, fn($s) => ($s['source'] ?? 'sale') === 'sale'), 'id');
+$orderIds = array_column(array_filter($sales, fn($s) => ($s['source'] ?? 'sale') === 'order'), 'id');
+$itemsBySale  = $SA->itemsForMany($saleIds);
+$itemsByOrder = $OR->itemsForMany($orderIds);
+foreach ($sales as &$s) {
+    $s['items'] = (($s['source'] ?? 'sale') === 'order' ? $itemsByOrder : $itemsBySale)[(int) $s['id']] ?? [];
+}
+unset($s);
 
 // Always compute today stats for the header card
 $todaySales = ($period === 'today') ? $sales : sales_and_orders($SA, $OR, 'today');
@@ -328,16 +344,25 @@ ob_start();
       <div class="table-responsive">
         <table class="table align-middle mb-0" id="saleTable">
           <thead><tr class="text-muted small text-uppercase">
-            <th>Receipt</th><th>When</th><th>Type</th><th>Staff</th><th>Customer</th><th>Pay</th><th class="text-end">Total</th><th></th>
+            <th>Receipt</th><th>When</th><th>Type</th><th>Staff</th><th>Customer</th><th>Products</th><th>Pay</th><th class="text-end">Total</th><th></th>
           </tr></thead>
           <tbody>
-            <?php foreach ($sales as $s): ?>
-            <tr data-search="<?php echo strtolower(htmlspecialchars($s['receipt_number'].' '.$s['staff_name'].' '.($s['customer_name']??''))); ?>">
+            <?php foreach ($sales as $s):
+                $itemNames = implode(' ', array_column($s['items'], 'name'));
+            ?>
+            <tr data-search="<?php echo strtolower(htmlspecialchars($s['receipt_number'].' '.$s['staff_name'].' '.($s['customer_name']??'').' '.$itemNames)); ?>">
               <td class="fw-semibold small"><?php echo htmlspecialchars($s['receipt_number']); ?></td>
               <td class="small text-nowrap"><?php echo date('j M, g:i a', strtotime($s['created_at'])); ?></td>
               <td><?php echo ($s['source'] ?? 'sale') === 'order' ? '<span class="badge bg-warning text-dark">Tab</span>' : Models\SaleModel::saleTypeBadge($s); ?></td>
               <td class="small"><?php echo htmlspecialchars($s['staff_name'] ?: '—'); ?></td>
-              <td class="small"><?php echo htmlspecialchars($s['customer_name'] ?: '—'); ?></td>
+              <td class="small">
+                <?php if ($s['customer_name'] && $s['customer_name'] !== 'Walk-in Customer'): ?>
+                  <a href="<?php echo public_url('super/sales/customer.php?name=' . urlencode($s['customer_name'])); ?>"><?php echo htmlspecialchars($s['customer_name']); ?></a>
+                <?php else: ?>
+                  <?php echo htmlspecialchars($s['customer_name'] ?: '—'); ?>
+                <?php endif; ?>
+              </td>
+              <td class="small"><?php echo Models\SaleModel::itemsSummaryHtml($s['items']); ?></td>
               <td class="small"><?php
                 $pm = $s['payment_method'] ?? 'cash';
                 if ($pm === 'split') {

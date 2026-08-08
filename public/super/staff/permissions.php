@@ -18,9 +18,12 @@ $toggles = [
     ['key' => 'take_orders',      'label' => 'Take orders',       'desc' => 'Open tabs, add drinks, and record sales.',                    'caps' => [Capabilities::SALES_RECORD]],
     ['key' => 'process_payments', 'label' => 'Process payments',  'desc' => 'View open/unpaid tabs shop-wide and mark them as paid.',      'caps' => [Capabilities::PAYMENTS_PROCESS]],
     // Note: inventory.view is deliberately NOT part of this toggle — every
-    // staff member can already see the Inventory page by role default; this
-    // switch only gates the ability to change stock.
-    ['key' => 'manage_inventory', 'label' => 'Manage inventory',  'desc' => 'Record stock deliveries, edit products, and manage suppliers.', 'caps' => [Capabilities::INVENTORY_EDIT, Capabilities::STOCK_ENTER]],
+    // staff member can already see the Inventory page by role default; these
+    // two switches only gate the ability to change stock. Split into two so
+    // a staff member can be trusted to log deliveries without also being
+    // able to edit/delete the catalogue, put items on offer, or archive them.
+    ['key' => 'record_stock',     'label' => 'Record stock',      'desc' => 'Record stock deliveries — new titles and restocks.',           'caps' => [Capabilities::STOCK_ENTER]],
+    ['key' => 'edit_inventory',   'label' => 'Edit inventory',    'desc' => 'Edit books, put items on offer or archive them, and manage suppliers/subjects/grades/publishers.', 'caps' => [Capabilities::INVENTORY_EDIT]],
 ];
 $manageable = [];
 foreach ($toggles as $t) { foreach ($t['caps'] as $c) { $manageable[] = $c; } }

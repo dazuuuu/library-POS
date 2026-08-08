@@ -1,8 +1,14 @@
 <?php
-// public/staff/orders/view.php?id=N — tab detail: add rounds, void.
-// Settling payment happens on the Payments page (staff/payments/), keyed by
-// invoice number — kept separate so servers and reception each have one job.
+// public/staff/orders/view.php?id=N — tab detail: add rounds, void, and for
+// a credit sale (open, unpaid tab with a customer email on file) email them
+// an invoice or a delivery note. Settling payment happens on the Payments
+// page (staff/payments/), keyed by invoice number — kept separate so
+// servers and reception each have one job. Reached from both the staff till
+// and the owner's side (super/orders/view.php thin-wraps this) — content
+// adapts by role rather than duplicating the page.
 require_once __DIR__ . '/../../../app/app.php';
+require_once ROOT_PATH . '/app/services/emails/order_invoice_email.php';
+require_once ROOT_PATH . '/app/services/emails/order_delivery_note_email.php';
 PageGuard::capability(Capabilities::SALES_RECORD);
 
 $pdo = Database::pdo();
@@ -16,10 +22,16 @@ if (!$order) {
     exit;
 }
 
+$isStaffViewer = TenantContext::role() === 'staff';
+$ordersBase  = $isStaffViewer ? public_url('staff/orders/') : public_url('super/orders/');
+$viewUrl     = ($isStaffViewer ? public_url('staff/orders/view.php') : public_url('super/orders/view.php')) . '?id=' . $id;
+$receiptUrl  = ($isStaffViewer ? public_url('staff/orders/receipt.php') : public_url('super/orders/receipt.php')) . '?id=' . $id;
+
 $P = new Models\ProductModel($pdo);
 $products = $order['status'] === 'open' ? $P->sellable() : [];
 
 $error = '';
+$notice = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -34,19 +46,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $res = $O->addItems($id, $items, TenantContext::userId());
         if ($res['ok']) {
             $_SESSION['flash']['success'] = 'Added to the tab.';
-            header('Location: ' . public_url('staff/orders/view.php?id=' . $id));
+            header('Location: ' . $viewUrl);
             exit;
         }
-        $error = $res['errors']['_'] ?? 'Could not add those drinks.';
+        $error = $res['errors']['_'] ?? 'Could not add those books.';
 
     } elseif ($action === 'void') {
         $res = $O->void($id, TenantContext::userId());
         $_SESSION['flash'][$res['ok'] ? 'success' : 'error'] = $res['ok'] ? 'Tab voided; stock restored.' : ($res['error'] ?? 'Could not void this tab.');
-        header('Location: ' . public_url('staff/orders/'));
+        header('Location: ' . $ordersBase);
         exit;
+
+    } elseif ($action === 'update_contact') {
+        $res = $O->updateCustomerContact($id, trim($_POST['customer_email'] ?? ''), trim($_POST['customer_phone'] ?? ''));
+        if ($res['ok']) { $notice = "Customer contact saved."; }
+        else { $error = $res['error']; }
+
+    } elseif (in_array($action, ['send_invoice', 'send_delivery_note'], true)) {
+        if (empty($order['customer_email'])) {
+            $error = 'Add a customer email first.';
+        } else {
+            $tenant = (new Models\TenantModel($pdo))->find(TenantContext::tenantId());
+            $shop = ['name' => $tenant['name'] ?? 'the shop'];
+            $items = $O->items($id);
+            if ($action === 'send_invoice') {
+                $msg = build_order_invoice_email($order, $items, $shop);
+            } else {
+                $msg = build_order_delivery_note_email($order, $items, $shop);
+            }
+            if ((new MailService())->send($order['customer_email'], $msg['subject'], $msg['html'], $msg['text'])) {
+                if ($action === 'send_invoice') { $O->markInvoiceSent($id); }
+                else { $O->markDeliveryNoteSent($id); }
+                $notice = ($action === 'send_invoice' ? 'Invoice' : 'Delivery note') . ' emailed to ' . $order['customer_email'] . '.';
+            } else {
+                $error = 'Could not send the email: ' . (MailService::lastError() ?: 'unknown error');
+            }
+        }
     }
 
-    $order = $O->find($id); // re-fetch in case totals changed
+    $order = $O->find($id); // re-fetch in case totals/contact changed
 }
 
 $items = $O->items($id);
@@ -64,12 +102,13 @@ ob_start();
     <div class="small text-muted">Invoice <?php echo htmlspecialchars($order['receipt_number']); ?> · opened <?php echo date('j M Y, g:i a', strtotime($order['created_at'])); ?></div>
   </div>
   <div class="d-flex gap-2">
-    <a class="btn btn-sm btn-outline-secondary" href="<?php echo public_url('staff/orders/'); ?>"><i class="fas fa-arrow-left me-1"></i>All tabs</a>
-    <a class="btn btn-sm btn-outline-primary" href="<?php echo public_url('staff/orders/receipt.php?id=' . $id); ?>"><i class="fas fa-receipt me-1"></i>Receipt</a>
+    <a class="btn btn-sm btn-outline-secondary" href="<?php echo $ordersBase; ?>"><i class="fas fa-arrow-left me-1"></i>All tabs</a>
+    <a class="btn btn-sm btn-outline-primary" href="<?php echo $receiptUrl; ?>"><i class="fas fa-receipt me-1"></i>Receipt</a>
   </div>
 </div>
 
 <?php if ($error): ?><div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
+<?php if ($notice): ?><div class="alert alert-success"><?php echo htmlspecialchars($notice); ?></div><?php endif; ?>
 
 <?php if ($order['status'] === 'open'): ?>
   <div class="alert alert-info py-2 small">
@@ -96,7 +135,15 @@ ob_start();
             </div>
           <?php endforeach; ?>
         <?php endif; ?>
-        <div class="d-flex justify-content-between pt-3">
+        <?php if ((float) $order['discount_amount'] > 0): ?>
+          <div class="d-flex justify-content-between pt-2 text-muted small">
+            <span>Subtotal</span><span>KES <?php echo number_format((float) $order['subtotal'], 0); ?></span>
+          </div>
+          <div class="d-flex justify-content-between text-muted small">
+            <span>Discount</span><span>− KES <?php echo number_format((float) $order['discount_amount'], 0); ?></span>
+          </div>
+        <?php endif; ?>
+        <div class="d-flex justify-content-between pt-2">
           <span class="fw-semibold">Total</span>
           <span class="fw-bold fs-5">KES <?php echo number_format((float) $order['total'], 0); ?></span>
         </div>
@@ -109,6 +156,43 @@ ob_start();
       <button class="btn btn-outline-danger btn-sm"><i class="fas fa-ban me-1"></i>Void tab</button>
     </form>
     <?php endif; ?>
+
+    <div class="card border-0 shadow-sm mb-4 mt-4" style="border-radius:14px;">
+      <div class="card-body p-4">
+        <h2 class="h6 mb-1">Credit sale contact</h2>
+        <p class="text-muted small mb-3">Add their email to send an invoice or a delivery note by email — either staff or the owner can do this.</p>
+        <form method="post" class="row g-2 mb-3">
+          <input type="hidden" name="action" value="update_contact">
+          <div class="col-12">
+            <label class="form-label small mb-1">Email</label>
+            <input type="email" name="customer_email" class="form-control form-control-sm" value="<?php echo htmlspecialchars($order['customer_email'] ?? ''); ?>" placeholder="customer@email.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-1">Phone <span class="text-muted">(optional)</span></label>
+            <input type="text" name="customer_phone" class="form-control form-control-sm" value="<?php echo htmlspecialchars($order['customer_phone'] ?? ''); ?>">
+          </div>
+          <div class="col-12">
+            <button class="btn btn-sm btn-outline-secondary">Save contact</button>
+          </div>
+        </form>
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" class="d-inline">
+            <input type="hidden" name="action" value="send_invoice">
+            <button class="btn btn-sm btn-primary" <?php echo empty($order['customer_email']) ? 'disabled' : ''; ?>><i class="fas fa-file-invoice me-1"></i>Email invoice</button>
+          </form>
+          <form method="post" class="d-inline">
+            <input type="hidden" name="action" value="send_delivery_note">
+            <button class="btn btn-sm btn-outline-primary" <?php echo empty($order['customer_email']) ? 'disabled' : ''; ?>><i class="fas fa-truck-ramp-box me-1"></i>Email delivery note</button>
+          </form>
+        </div>
+        <?php if (!empty($order['invoice_sent_at']) || !empty($order['delivery_note_sent_at'])): ?>
+          <div class="text-muted small mt-2">
+            <?php if (!empty($order['invoice_sent_at'])): ?>Invoice sent <?php echo date('j M, g:i a', strtotime($order['invoice_sent_at'])); ?>.<?php endif; ?>
+            <?php if (!empty($order['delivery_note_sent_at'])): ?> Delivery note sent <?php echo date('j M, g:i a', strtotime($order['delivery_note_sent_at'])); ?>.<?php endif; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
   </div>
 
   <div class="col-12 col-lg-6">
@@ -123,7 +207,7 @@ ob_start();
           <input type="hidden" name="action" value="add_items">
           <input type="hidden" name="cart" id="cartInput" value="">
           <div class="position-relative mb-2">
-            <input type="text" id="search" class="form-control" placeholder="Search drinks…" autocomplete="off">
+            <input type="text" id="search" class="form-control" placeholder="Search books…" autocomplete="off">
           </div>
           <div id="productList" style="max-height:280px;overflow-y:auto;">
             <?php foreach ($products as $p):
@@ -197,4 +281,5 @@ search.addEventListener('input', function () {
 <?php endif; ?>
 <?php
 $content = ob_get_clean();
-include __DIR__ . '/../../templates/staff/layout.php';
+$__layout = $isStaffViewer ? 'staff' : 'tenants';
+include __DIR__ . '/../../templates/' . $__layout . '/layout.php';
