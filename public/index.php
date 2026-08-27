@@ -107,8 +107,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   .admin-link:hover{color:#16a34a;}
 
   @media (max-width: 560px){
-    .panel{flex-direction:column;border-radius:18px;}
-    .side{order:-1;}
+    body{align-items:flex-start;padding:14px;padding-bottom:210px;}
+    .panel{flex-direction:column;border-radius:18px;max-width:420px;}
+    .pad{padding:18px;}
+    .side{position:fixed;left:0;right:0;bottom:0;z-index:30;border-left:0;border-top:1px solid #d9f5e4;border-radius:18px 18px 0 0;padding:14px 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -8px 24px rgba(16,24,40,.12);}
+    .brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;text-align:left;}
+    .brand-icon{width:40px;height:40px;border-radius:10px;margin:0;}
+    .brand h1{font-size:.95rem;}
+    .brand p{font-size:.68rem;}
+    .actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+    .act{padding:12px 8px;font-size:.78rem;}
+    .act i{display:block;margin:0 0 4px;}
+    .admin-link{margin-top:10px;font-size:.72rem;}
   }
 </style>
 </head>

@@ -1,7 +1,7 @@
 <?php
 // app/config/db_connect.php
 $db_host = 'localhost';
-$db_name = '2in1_db';
+$db_name = 'denmar_db';
 $db_user = 'root';
 $db_pass = '';
 

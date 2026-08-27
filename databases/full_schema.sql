@@ -259,6 +259,28 @@ CREATE TABLE `enquiries` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `customers`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `customers` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL,
+  `name` varchar(160) NOT NULL,
+  `company_name` varchar(160) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `location` varchar(160) DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_customers_tenant_name` (`tenant_id`,`name`),
+  KEY `idx_customers_tenant_email` (`tenant_id`,`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `enquiry_replies`
 --
 
@@ -275,6 +297,28 @@ CREATE TABLE `enquiry_replies` (
   KEY `idx_enquiry` (`enquiry_id`),
   CONSTRAINT `fk_enqreply_admin` FOREIGN KEY (`admin_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_enqreply_enq` FOREIGN KEY (`enquiry_id`) REFERENCES `enquiries` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `finance_expenses`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `finance_expenses` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL,
+  `title` varchar(160) NOT NULL,
+  `category` varchar(80) NOT NULL DEFAULT 'General',
+  `amount` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `payment_method` enum('cash','mpesa','bank') NOT NULL DEFAULT 'cash',
+  `expense_date` date NOT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_by` int DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_finance_expenses_tenant` (`tenant_id`,`expense_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -436,6 +480,7 @@ CREATE TABLE `order_items` (
   `product_id` int DEFAULT NULL,
   `product_name` varchar(160) NOT NULL,
   `unit_price` decimal(12,2) NOT NULL,
+  `price_type` enum('retail','wholesale') NOT NULL DEFAULT 'retail',
   `quantity` decimal(12,2) NOT NULL,
   `line_total` decimal(12,2) NOT NULL,
   `added_by` int NOT NULL,
@@ -456,9 +501,13 @@ CREATE TABLE `orders` (
   `id` int NOT NULL AUTO_INCREMENT,
   `tenant_id` int NOT NULL,
   `table_name` varchar(120) NOT NULL,
+  `customer_id` int DEFAULT NULL,
   `customer_phone` varchar(30) DEFAULT NULL,
   `customer_email` varchar(255) DEFAULT NULL,
+  `customer_company` varchar(160) DEFAULT NULL,
+  `customer_location` varchar(160) DEFAULT NULL,
   `channel` enum('walkin','tab') NOT NULL DEFAULT 'tab',
+  `sale_type` enum('retail','wholesale') NOT NULL DEFAULT 'retail',
   `opened_by` int NOT NULL,
   `receipt_number` varchar(32) NOT NULL,
   `status` enum('open','paid','void') NOT NULL DEFAULT 'open',
@@ -476,6 +525,8 @@ CREATE TABLE `orders` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `invoice_sent_at` datetime DEFAULT NULL,
   `delivery_note_sent_at` datetime DEFAULT NULL,
+  `delivery_person` varchar(120) DEFAULT NULL,
+  `delivery_fee` decimal(12,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_order_receipt` (`tenant_id`,`receipt_number`),
   KEY `idx_order_tenant` (`tenant_id`),
@@ -926,6 +977,22 @@ CREATE TABLE `staff_reclock_authorizations` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `staff_attendance_settings`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `staff_attendance_settings` (
+  `tenant_id` int NOT NULL,
+  `clock_in_time` time NOT NULL DEFAULT '08:00:00',
+  `clock_out_time` time NOT NULL DEFAULT '18:00:00',
+  `late_grace_minutes` int NOT NULL DEFAULT '0',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `staff_time_logs`
 --
 
@@ -938,6 +1005,7 @@ CREATE TABLE `staff_time_logs` (
   `clock_in_at` datetime NOT NULL,
   `clock_out_at` datetime DEFAULT NULL,
   `auto_closed` tinyint(1) NOT NULL DEFAULT '0',
+  `late_clock_in` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_timelog_tenant` (`tenant_id`),
@@ -981,6 +1049,10 @@ CREATE TABLE `stock_intakes` (
   `supplier_id` int DEFAULT NULL,
   `staff_id` int NOT NULL,
   `notes` varchar(255) DEFAULT NULL,
+  `total_amount` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `amount_paid` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `amount_due` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `payment_status` enum('paid','part_paid','credit') NOT NULL DEFAULT 'paid',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_intake_tenant` (`tenant_id`),

@@ -5,7 +5,7 @@
 
 return [
     'host' => 'localhost',
-    'dbname' => 'archimedes_db',
+    'dbname' => 'denmar_db',
     'username' => 'root',
     'password' => '',
     'charset' => 'utf8mb4'

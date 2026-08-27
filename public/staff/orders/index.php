@@ -13,21 +13,20 @@ $orders = $O->openOrders();
 
 $isStaffViewer = TenantContext::role() === 'staff';
 $viewBase = $isStaffViewer ? public_url('staff/orders/view.php') : public_url('super/orders/view.php');
+$newOrderUrl = $isStaffViewer ? public_url('staff/orders/new.php') : public_url('super/orders/new.php');
 
-$page_title = 'Open tabs';
+$page_title = 'Credit sales';
 ob_start();
 ?>
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-  <h1 class="h5 mb-0 fw-bold"><i class="fas fa-receipt me-2 text-warning"></i>Open tabs</h1>
-  <?php if ($isStaffViewer): ?>
-  <a href="<?php echo public_url('staff/orders/new.php'); ?>" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i>New order</a>
-  <?php endif; ?>
+  <h1 class="h5 mb-0 fw-bold"><i class="fas fa-receipt me-2 text-warning"></i>Credit sales</h1>
+  <a href="<?php echo $newOrderUrl; ?>" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i>New order</a>
 </div>
 
 <?php if (!$orders): ?>
   <div class="card border-0 shadow-sm" style="border-radius:14px;"><div class="card-body p-5 text-center text-muted">
     <i class="fas fa-inbox fa-2x mb-2 d-block" style="opacity:.3;"></i>
-    No open tabs right now.
+    No credit sales right now.
   </div></div>
 <?php else: ?>
   <div class="row g-3">

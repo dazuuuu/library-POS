@@ -1,6 +1,7 @@
 <?php
 // public/staff/orders/receipt.php?id=N — printable tab receipt (unpaid or paid)
 require_once __DIR__ . '/../../../app/app.php';
+require_once ROOT_PATH . '/app/services/emails/order_invoice_email.php';
 PageGuard::auth();
 
 $pdo = Database::pdo();
@@ -29,6 +30,24 @@ $nameOf = function (?int $userId): string {
 };
 $openedBy = $nameOf((int) $order['opened_by']);
 $paidBy   = $order['paid_by'] ? $nameOf((int) $order['paid_by']) : '';
+$flash = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'email_invoice') {
+    $to = trim($_POST['email'] ?? '');
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $flash = 'Enter a valid email address.';
+    } else {
+        $msg = build_order_invoice_email($order, $items, ['name' => $shop, 'phone' => $tenant['phone'] ?? '', 'address' => $tenant['address'] ?? '']);
+        if ((new MailService())->send($to, $msg['subject'], $msg['html'], $msg['text'])) {
+            $O->updateCustomerContact($id, $to, $order['customer_phone'] ?? null);
+            $O->markInvoiceSent($id);
+            $flash = 'Invoice emailed to ' . $to . '.';
+            $order = $O->find($id);
+        } else {
+            $flash = 'Could not send the email: ' . (MailService::lastError() ?: 'unknown error');
+        }
+    }
+}
 
 function money($n) { global $currency; return $currency . ' ' . number_format((float) $n, 2); }
 
@@ -52,6 +71,7 @@ $isStaffViewer = TenantContext::role() === 'staff';
 </style>
 </head>
 <body>
+  <?php if ($flash): ?><div class="alert alert-info actions"><?php echo htmlspecialchars($flash); ?></div><?php endif; ?>
   <div class="sheet" style="font-size:13px;color:#0f172a;">
     <div style="text-align:center;border-bottom:2px dashed #cbd5e1;padding-bottom:10px;margin-bottom:10px;">
       <?php if ($logo): ?><img src="<?php echo htmlspecialchars($logo); ?>" alt="" style="max-height:44px;max-width:160px;object-fit:contain;margin-bottom:6px;"><?php endif; ?>
@@ -83,14 +103,29 @@ $isStaffViewer = TenantContext::role() === 'staff';
     </table>
 
     <table style="width:100%;border-collapse:collapse;font-size:14px;border-top:2px dashed #cbd5e1;margin-top:8px;padding-top:8px;">
-      <?php if ((float) ($order['discount_amount'] ?? 0) > 0): ?>
+      <?php if ((float) ($order['discount_amount'] ?? 0) > 0 || (float) ($order['delivery_fee'] ?? 0) > 0): ?>
         <tr><td style="color:#64748b;">Subtotal</td><td style="text-align:right;"><?php echo money($order['subtotal']); ?></td></tr>
+      <?php endif; ?>
+      <?php if ((float) ($order['discount_amount'] ?? 0) > 0): ?>
         <tr><td style="color:#64748b;">Discount</td><td style="text-align:right;">− <?php echo money($order['discount_amount']); ?></td></tr>
+      <?php endif; ?>
+      <?php if ((float) ($order['delivery_fee'] ?? 0) > 0): ?>
+        <tr><td style="color:#64748b;">Delivery fee</td><td style="text-align:right;"><?php echo money($order['delivery_fee']); ?></td></tr>
       <?php endif; ?>
       <tr><td style="font-weight:700;padding-top:8px;">Total</td><td style="text-align:right;font-weight:700;padding-top:8px;"><?php echo money($order['total']); ?></td></tr>
       <?php if ($order['status'] === 'paid'): ?>
         <tr><td style="color:#64748b;">Paid via</td><td style="text-align:right;"><?php echo htmlspecialchars(ucfirst($order['payment_method'] ?? '')); ?></td></tr>
-        <?php if ($order['amount_tendered'] !== null): ?>
+        <?php if (($order['payment_method'] ?? '') === 'split'): ?>
+        <?php if ((float) ($order['cash_amount'] ?? 0) > 0): ?>
+        <tr><td style="color:#64748b;">Cash</td><td style="text-align:right;"><?php echo money($order['cash_amount']); ?></td></tr>
+        <?php endif; ?>
+        <?php if ((float) ($order['mpesa_amount'] ?? 0) > 0): ?>
+        <tr><td style="color:#64748b;">M-Pesa</td><td style="text-align:right;"><?php echo money($order['mpesa_amount']); ?></td></tr>
+        <?php endif; ?>
+        <?php if ((float) ($order['change_due'] ?? 0) > 0): ?>
+        <tr><td style="color:#64748b;font-weight:700;">Balance</td><td style="text-align:right;font-weight:700;"><?php echo money($order['change_due']); ?></td></tr>
+        <?php endif; ?>
+        <?php elseif ($order['amount_tendered'] !== null): ?>
         <tr><td style="color:#64748b;">Cash given</td><td style="text-align:right;"><?php echo money($order['amount_tendered']); ?></td></tr>
         <tr><td style="color:#64748b;font-weight:700;">Balance</td><td style="text-align:right;font-weight:700;"><?php echo money($order['change_due']); ?></td></tr>
         <?php endif; ?>
@@ -113,6 +148,11 @@ $isStaffViewer = TenantContext::role() === 'staff';
         <a href="<?php echo public_url('staff/orders/view.php?id=' . $id); ?>" class="btn btn-outline-secondary flex-fill">Back to tab</a>
       <?php endif; ?>
     </div>
+    <form method="post" class="d-flex gap-2 mb-2">
+      <input type="hidden" name="action" value="email_invoice">
+      <input type="email" name="email" class="form-control" placeholder="customer@email.com" value="<?php echo htmlspecialchars($order['customer_email'] ?? ''); ?>" required>
+      <button class="btn btn-outline-primary"><i class="fas fa-envelope me-1"></i>Email</button>
+    </form>
     <?php if (!$isStaffViewer): ?>
     <div class="d-flex gap-2">
       <a href="<?php echo public_url('super/sales/'); ?>" class="btn btn-link flex-fill">Sales</a>
@@ -125,7 +165,7 @@ $isStaffViewer = TenantContext::role() === 'staff';
     </div>
     <?php else: ?>
     <div class="d-flex gap-2">
-      <a href="<?php echo public_url('staff/orders/'); ?>" class="btn btn-link flex-fill">All tabs</a>
+      <a href="<?php echo public_url('staff/orders/'); ?>" class="btn btn-link flex-fill">Credit sales</a>
       <a href="<?php echo public_url('staff/orders/new.php'); ?>" class="btn btn-link flex-fill">New order</a>
     </div>
     <?php endif; ?>

@@ -8,9 +8,10 @@
 class SalesReport
 {
     /** Gather everything the report needs for one tenant on one Y-m-d date. */
-    public static function data(\PDO $db, int $tenantId, string $date): array
+    public static function data(\PDO $db, int $tenantId, string $date, string $type = 'general'): array
     {
         $date  = preg_replace('/[^0-9-]/', '', $date) ?: date('Y-m-d');
+        $type = in_array($type, ['general', 'sales', 'inventory', 'products', 'attendance', 'finance'], true) ? $type : 'general';
         $model = new \Models\SaleModel($db);
         $order = new \Models\OrderModel($db);
         // Paid tabs are now the main way staff record a sale; legacy direct
@@ -24,11 +25,39 @@ class SalesReport
         return [
             'tenant_id' => $tenantId,
             'date'      => $date,
+            'type'      => $type,
             'shop'      => self::shop($db, $tenantId),
             'sales'     => $sales,
             'sum'       => $sum,
             'staff'     => $staff,
             'products'  => self::productBreakdown($db, $tenantId, $date),
+            'inventory' => self::inventory($db, $tenantId),
+            'attendance'=> self::attendance($db, $tenantId, $date),
+            'finance'   => self::finance($db, $tenantId),
+        ];
+    }
+
+    private static function inventory(\PDO $db, int $tenantId): array
+    {
+        $st = $db->prepare("SELECT name, quantity, buying_price, retail_price, wholesale_price, status FROM products WHERE tenant_id = ? ORDER BY name ASC LIMIT 300");
+        $st->execute([$tenantId]);
+        return $st->fetchAll();
+    }
+
+    private static function attendance(\PDO $db, int $tenantId, string $date): array
+    {
+        $st = $db->prepare("SELECT l.*, u.username FROM staff_time_logs l JOIN users u ON u.id = l.user_id WHERE l.tenant_id = ? AND DATE(l.clock_in_at) = ? ORDER BY l.clock_in_at ASC");
+        $st->execute([$tenantId, $date]);
+        return $st->fetchAll();
+    }
+
+    private static function finance(\PDO $db, int $tenantId): array
+    {
+        $F = new \Models\FinanceModel($db);
+        return [
+            'summary' => $F->summaryForTenant($tenantId),
+            'suppliers' => $F->supplierBalancesForTenant($tenantId),
+            'expenses' => $F->expensesForTenant($tenantId, 60),
         ];
     }
 
@@ -101,6 +130,7 @@ class SalesReport
         $cur   = self::cur($data);
         $shop  = $data['shop'];
         $sum   = $data['sum'];
+        $type = $data['type'] ?? 'general';
         $dateLabel = date('l, j F Y', strtotime($data['date']));
 
         $pdf = new \FPDF('P', 'mm', 'A4');
@@ -113,7 +143,7 @@ class SalesReport
         $pdf->Cell(0, 9, self::t($shop['name'] ?: 'Shop'), 0, 1);
         $pdf->SetFont('Helvetica', '', 11);
         $pdf->SetTextColor(90, 90, 90);
-        $pdf->Cell(0, 6, self::t('Daily Sales Report  -  ' . $dateLabel), 0, 1);
+        $pdf->Cell(0, 6, self::t(ucfirst($type) . ' Report  -  ' . $dateLabel), 0, 1);
         $meta = trim((string) ($shop['phone'] ?? '') . (($shop['phone'] && $shop['address']) ? '  |  ' : '') . (string) ($shop['address'] ?? ''));
         if ($meta !== '') { $pdf->SetFont('Helvetica', '', 9); $pdf->Cell(0, 5, self::t($meta), 0, 1); }
         $pdf->SetTextColor(0, 0, 0);
@@ -151,6 +181,7 @@ class SalesReport
         $pdf->SetTextColor(0, 0, 0);
 
         // ----- sales table -----
+        if (in_array($type, ['general', 'sales'], true)) {
         self::sectionTitle($pdf, 'Sales (' . $sum['count'] . ')');
         if (!$data['sales']) {
             $pdf->SetFont('Helvetica', 'I', 10);
@@ -176,9 +207,10 @@ class SalesReport
             }
         }
         $pdf->Ln(4);
+        }
 
         // ----- product breakdown -----
-        if ($data['products']) {
+        if (in_array($type, ['general', 'products'], true) && $data['products']) {
             self::sectionTitle($pdf, 'Products sold');
             $cols = [['Product', 110, 'L'], ['Qty', 30, 'R'], ['Revenue', 40, 'R']];
             self::tableHead($pdf, $cols);
@@ -192,8 +224,44 @@ class SalesReport
             $pdf->Ln(4);
         }
 
+        if (in_array($type, ['general', 'inventory'], true) && $data['inventory']) {
+            self::sectionTitle($pdf, 'Inventory');
+            $cols = [['Product', 88, 'L'], ['Qty', 22, 'R'], ['Cost', 35, 'R'], ['Retail', 35, 'R']];
+            self::tableHead($pdf, $cols);
+            $fill = false;
+            foreach (array_slice($data['inventory'], 0, 80) as $p) {
+                self::tableRow($pdf, $cols, [$p['name'], rtrim(rtrim(number_format((float) $p['quantity'], 2), '0'), '.'), self::money($cur, $p['buying_price']), self::money($cur, $p['retail_price'])], $fill);
+                $fill = !$fill;
+            }
+            $pdf->Ln(4);
+        }
+
+        if (in_array($type, ['general', 'attendance'], true) && $data['attendance']) {
+            self::sectionTitle($pdf, 'Attendance');
+            $cols = [['Staff', 60, 'L'], ['Clock in', 40, 'L'], ['Clock out', 40, 'L'], ['Status', 40, 'L']];
+            self::tableHead($pdf, $cols);
+            $fill = false;
+            foreach ($data['attendance'] as $a) {
+                self::tableRow($pdf, $cols, [$a['username'], date('g:i a', strtotime($a['clock_in_at'])), $a['clock_out_at'] ? date('g:i a', strtotime($a['clock_out_at'])) : 'Still in', !empty($a['late_clock_in']) ? 'Late' : (!empty($a['auto_closed']) ? 'Auto closed' : 'On time')], $fill);
+                $fill = !$fill;
+            }
+            $pdf->Ln(4);
+        }
+
+        if (in_array($type, ['general', 'finance'], true)) {
+            self::sectionTitle($pdf, 'Finance');
+            $fs = $data['finance']['summary'] ?? [];
+            foreach ([['Assets', $fs['assets'] ?? 0], ['Liabilities', $fs['liabilities'] ?? 0], ['Equity', $fs['equity'] ?? 0], ['Supplier debt', $fs['supplier_debt'] ?? 0], ['Expenses', $fs['expenses'] ?? 0]] as $row) {
+                $pdf->SetFont('Helvetica', '', 10);
+                $pdf->Cell(100, 7, self::t($row[0]), 0, 0);
+                $pdf->SetFont('Helvetica', 'B', 10);
+                $pdf->Cell(80, 7, self::t(self::money($cur, $row[1])), 0, 1, 'R');
+            }
+            $pdf->Ln(4);
+        }
+
         // ----- staff breakdown -----
-        if ($data['staff']) {
+        if (in_array($type, ['general', 'sales'], true) && $data['staff']) {
             self::sectionTitle($pdf, 'By staff member');
             $cols = [['Staff', 110, 'L'], ['Sales', 30, 'R'], ['Revenue', 40, 'R']];
             self::tableHead($pdf, $cols);

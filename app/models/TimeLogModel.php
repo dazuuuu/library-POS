@@ -21,8 +21,41 @@ class TimeLogModel extends Model
         $this->ensureSchema();
     }
 
+    public function settings(int $tenantId): array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM staff_attendance_settings WHERE tenant_id = ? LIMIT 1');
+        $stmt->execute([$tenantId]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+        $this->db->prepare('INSERT IGNORE INTO staff_attendance_settings (tenant_id) VALUES (?)')->execute([$tenantId]);
+        return [
+            'tenant_id' => $tenantId,
+            'clock_in_time' => '08:00:00',
+            'clock_out_time' => '18:00:00',
+            'late_grace_minutes' => 0,
+        ];
+    }
+
+    public function updateSettings(int $tenantId, string $clockIn, string $clockOut, int $graceMinutes = 0): array
+    {
+        if (!$this->validTime($clockIn) || !$this->validTime($clockOut)) {
+            return ['ok' => false, 'error' => 'Enter valid clock-in and clock-out times.'];
+        }
+        $graceMinutes = max(0, min(180, $graceMinutes));
+        $stmt = $this->db->prepare(
+            'INSERT INTO staff_attendance_settings (tenant_id, clock_in_time, clock_out_time, late_grace_minutes)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE clock_in_time = VALUES(clock_in_time), clock_out_time = VALUES(clock_out_time), late_grace_minutes = VALUES(late_grace_minutes)'
+        );
+        $stmt->execute([$tenantId, $clockIn . ':00', $clockOut . ':00', $graceMinutes]);
+        return ['ok' => true, 'error' => null];
+    }
+
     public function clockIn(int $tenantId, int $userId): array
     {
+        $this->autoCloseOverdueForTenant($tenantId);
         $today = date('Y-m-d');
         $last = $this->lastLog($tenantId, $userId);
 
@@ -37,15 +70,20 @@ class TimeLogModel extends Model
             }
         }
 
+        $settings = $this->settings($tenantId);
+        $lateAfter = strtotime($today . ' ' . $settings['clock_in_time']) + ((int) $settings['late_grace_minutes'] * 60);
+        $isLate = time() > $lateAfter;
+
         $stmt = $this->db->prepare(
-            'INSERT INTO staff_time_logs (tenant_id, user_id, clock_in_at) VALUES (?, ?, NOW())'
+            'INSERT INTO staff_time_logs (tenant_id, user_id, clock_in_at, late_clock_in) VALUES (?, ?, NOW(), ?)'
         );
-        $stmt->execute([$tenantId, $userId]);
-        return ['ok' => true, 'error' => null, 'at' => date('g:i a')];
+        $stmt->execute([$tenantId, $userId, $isLate ? 1 : 0]);
+        return ['ok' => true, 'error' => null, 'at' => date('g:i a'), 'late' => $isLate];
     }
 
     public function clockOut(int $tenantId, int $userId): array
     {
+        $this->autoCloseOverdueForTenant($tenantId);
         $open = $this->lastLog($tenantId, $userId);
         if (!$open || $open['clock_out_at'] !== null) {
             return ['ok' => false, 'error' => "You haven't clocked in, or you've already clocked out."];
@@ -68,6 +106,7 @@ class TimeLogModel extends Model
                 `clock_in_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 `clock_out_at` DATETIME NULL DEFAULT NULL,
                 `auto_closed` TINYINT(1) NOT NULL DEFAULT 0,
+                `late_clock_in` TINYINT(1) NOT NULL DEFAULT 0,
                 PRIMARY KEY (`id`),
                 KEY `idx_stafflog_tenant_user` (`tenant_id`, `user_id`),
                 KEY `idx_stafflog_clockin` (`clock_in_at`)
@@ -86,6 +125,20 @@ class TimeLogModel extends Model
                 `used_at` DATETIME NULL DEFAULT NULL,
                 PRIMARY KEY (`id`),
                 KEY `idx_reclock_user` (`tenant_id`, `user_id`, `used_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+
+        $this->ensureColumn('staff_time_logs', 'late_clock_in', "ALTER TABLE staff_time_logs ADD COLUMN late_clock_in TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_closed");
+        try {
+            $this->db->query("SELECT 1 FROM `staff_attendance_settings` LIMIT 1");
+        } catch (\PDOException $e) {
+            $this->db->exec("CREATE TABLE IF NOT EXISTS `staff_attendance_settings` (
+                `tenant_id` INT NOT NULL,
+                `clock_in_time` TIME NOT NULL DEFAULT '08:00:00',
+                `clock_out_time` TIME NOT NULL DEFAULT '18:00:00',
+                `late_grace_minutes` INT NOT NULL DEFAULT 0,
+                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`tenant_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
     }
@@ -122,6 +175,7 @@ class TimeLogModel extends Model
     /** Staff currently clocked in (open, not auto-closed) — the attendance page's "In now" list. */
     public function currentlyIn(int $tenantId): array
     {
+        $this->autoCloseOverdueForTenant($tenantId);
         $stmt = $this->db->prepare(
             "SELECT l.*, u.username FROM staff_time_logs l
                JOIN users u ON u.id = l.user_id
@@ -135,6 +189,7 @@ class TimeLogModel extends Model
     /** Recent clock in/out history for every staff member, newest first. */
     public function recentForTenant(int $tenantId, int $limit = 100): array
     {
+        $this->autoCloseOverdueForTenant($tenantId);
         $stmt = $this->db->prepare(
             "SELECT l.*, u.username FROM staff_time_logs l
                JOIN users u ON u.id = l.user_id
@@ -146,13 +201,60 @@ class TimeLogModel extends Model
         return $stmt->fetchAll();
     }
 
+    public function todaysEvents(int $tenantId): array
+    {
+        $this->autoCloseOverdueForTenant($tenantId);
+        $stmt = $this->db->prepare(
+            "SELECT l.*, u.username FROM staff_time_logs l
+               JOIN users u ON u.id = l.user_id
+              WHERE l.tenant_id = ? AND DATE(l.clock_in_at) = CURDATE()
+           ORDER BY l.clock_in_at DESC, l.id DESC"
+        );
+        $stmt->execute([$tenantId]);
+        return $stmt->fetchAll();
+    }
+
+    public function autoCloseOverdueForTenant(int $tenantId): int
+    {
+        $settings = $this->settings($tenantId);
+        $cutoff = date('Y-m-d') . ' ' . $settings['clock_out_time'];
+        if (time() < strtotime($cutoff)) {
+            return 0;
+        }
+        $stmt = $this->db->prepare(
+            'UPDATE staff_time_logs
+                SET clock_out_at = CONCAT(DATE(clock_in_at), " ", ?), auto_closed = 1
+              WHERE tenant_id = ? AND clock_out_at IS NULL AND CONCAT(DATE(clock_in_at), " ", ?) <= NOW()'
+        );
+        $stmt->execute([$settings['clock_out_time'], $tenantId, $settings['clock_out_time']]);
+        return $stmt->rowCount();
+    }
+
     // ---- internals ----
 
     private function autoClose(array $log): void
     {
-        $closeAt = $this->dateOf($log['clock_in_at']) . ' 23:59:59';
+        $settings = $this->settings((int) $log['tenant_id']);
+        $closeAt = $this->dateOf($log['clock_in_at']) . ' ' . $settings['clock_out_time'];
         $stmt = $this->db->prepare('UPDATE staff_time_logs SET clock_out_at = ?, auto_closed = 1 WHERE id = ?');
         $stmt->execute([$closeAt, $log['id']]);
+    }
+
+    private function ensureColumn(string $table, string $column, string $sql): void
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?");
+            $stmt->execute([$table, $column]);
+            if ((int) $stmt->fetchColumn() === 0) {
+                $this->db->exec($sql);
+            }
+        } catch (\PDOException $ignored) {
+        }
+    }
+
+    private function validTime(string $time): bool
+    {
+        return (bool) preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $time);
     }
 
     /** Reuses (consumes) the oldest unused re-clock slip, if any. */

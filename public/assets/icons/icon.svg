@@ -1,46 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Cosmetics Shop icon">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#22c55e"/>
-      <stop offset="1" stop-color="#15803d"/>
+    <radialGradient id="paper" cx="50%" cy="35%" r="70%">
+      <stop offset="0" stop-color="#fffaf3"/>
+      <stop offset="1" stop-color="#f8efe4"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7d890"/>
+      <stop offset=".5" stop-color="#b8873b"/>
+      <stop offset="1" stop-color="#7b4b19"/>
+    </linearGradient>
+    <linearGradient id="rose" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6c4bc"/>
+      <stop offset="1" stop-color="#bd5f63"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#39231d"/>
+      <stop offset="1" stop-color="#0f0b0a"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#paper)"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="url(#gold)" stroke-width="12"/>
+  <path d="M107 335 C168 271 274 267 402 338" fill="none" stroke="#efb9ad" stroke-width="40" stroke-linecap="round" opacity=".78"/>
+  <path d="M103 390 C205 356 330 358 432 397" fill="none" stroke="url(#gold)" stroke-width="13" stroke-linecap="round"/>
+  <path d="M105 383 C191 347 309 348 422 383" fill="none" stroke="#2c160c" stroke-width="8" stroke-linecap="round"/>
 
-  <!-- bookmark ribbon, behind the book -->
-  <path d="M241 96 H271 V226 L256 210 L241 226 Z" fill="#0f6b31"/>
+  <g fill="url(#gold)" opacity=".9">
+    <path d="M108 172 C143 205 145 251 112 292 C85 251 84 207 108 172Z"/>
+    <path d="M66 257 C107 264 135 295 143 346 C95 341 66 308 66 257Z"/>
+    <path d="M152 248 C185 282 184 323 150 361 C126 321 126 282 152 248Z"/>
+    <path d="M116 379 C143 369 169 376 191 400 C153 411 126 404 116 379Z"/>
+  </g>
 
-  <!-- open book -->
-  <g>
-    <path d="M256 208
-             C 214 190 156 182 104 196
-             C 98 198 94 203 94 209
-             L 100 360
-             C 100 366 105 370 111 369
-             C 158 360 212 366 256 386
-             Z" fill="#ffffff"/>
-    <path d="M256 208
-             C 298 190 356 182 408 196
-             C 414 198 418 203 418 209
-             L 412 360
-             C 412 366 407 370 401 369
-             C 354 360 300 366 256 386
-             Z" fill="#f4f4f4"/>
-    <path d="M256 208 L256 386" stroke="#cbd5c8" stroke-width="4" stroke-linecap="round"/>
-
-    <!-- text lines, left page -->
-    <g stroke="#22c55e" stroke-width="10" stroke-linecap="round">
-      <line x1="132" y1="242" x2="222" y2="252"/>
-      <line x1="130" y1="276" x2="222" y2="284"/>
-      <line x1="129" y1="310" x2="220" y2="316"/>
-      <line x1="128" y1="343" x2="216" y2="347"/>
+  <g transform="translate(0 7)">
+    <rect x="189" y="239" width="45" height="132" rx="14" fill="url(#dark)"/>
+    <rect x="197" y="220" width="30" height="70" rx="11" fill="#1a100d"/>
+    <line x1="183" y1="149" x2="183" y2="293" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <g stroke="#111" stroke-width="3" stroke-linecap="round">
+      <line x1="171" y1="160" x2="194" y2="157"/>
+      <line x1="171" y1="173" x2="194" y2="170"/>
+      <line x1="171" y1="186" x2="194" y2="184"/>
+      <line x1="171" y1="199" x2="194" y2="198"/>
+      <line x1="171" y1="212" x2="194" y2="212"/>
     </g>
-    <!-- text lines, right page -->
-    <g stroke="#c9ccc9" stroke-width="10" stroke-linecap="round">
-      <line x1="290" y1="252" x2="380" y2="242"/>
-      <line x1="290" y1="284" x2="382" y2="276"/>
-      <line x1="292" y1="316" x2="383" y2="310"/>
-      <line x1="296" y1="347" x2="384" y2="343"/>
-    </g>
+
+    <rect x="242" y="231" width="54" height="143" rx="12" fill="url(#dark)"/>
+    <rect x="237" y="208" width="64" height="45" rx="8" fill="url(#gold)"/>
+    <path d="M247 205 L291 205 L282 120 C280 99 258 93 247 112 C237 130 237 164 247 205Z" fill="url(#rose)"/>
+    <path d="M253 126 C269 114 283 119 285 140" fill="none" stroke="#ffe2dc" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+
+    <rect x="314" y="151" width="31" height="223" rx="13" fill="#1b100c"/>
+    <path d="M310 153 H349 L343 255 H316 Z" fill="url(#gold)"/>
+    <path d="M289 114 C301 64 370 62 386 112 C391 129 376 148 349 158 C329 166 301 154 289 114Z" fill="url(#dark)"/>
+    <path d="M310 107 C322 74 365 76 375 108" fill="none" stroke="#6c4a3a" stroke-width="7" stroke-linecap="round" opacity=".6"/>
+
+    <path d="M351 249 C351 211 378 183 413 183 C449 183 475 212 475 250 L475 338 C475 372 448 394 413 394 C378 394 351 372 351 338 Z" fill="#f1b7ad" opacity=".6" stroke="#704132" stroke-width="8"/>
+    <rect x="381" y="164" width="64" height="36" rx="10" fill="url(#gold)"/>
+    <path d="M374 126 L452 126 L467 164 L359 164 Z" fill="#f7eee9" stroke="#d6c7bf" stroke-width="5"/>
+    <circle cx="413" cy="182" r="8" fill="#422018"/>
+    <path d="M372 276 C394 237 438 235 460 276" fill="none" stroke="#fff6ef" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+
+    <rect x="217" y="327" width="128" height="70" rx="17" fill="url(#dark)" stroke="url(#gold)" stroke-width="13"/>
+    <rect x="206" y="302" width="150" height="39" rx="12" fill="url(#gold)"/>
+  </g>
+  <g fill="#b8873b">
+    <path d="M205 136 L214 158 L236 167 L214 176 L205 198 L196 176 L174 167 L196 158Z"/>
+    <path d="M246 91 L251 104 L264 109 L251 114 L246 127 L241 114 L228 109 L241 104Z"/>
   </g>
 </svg>

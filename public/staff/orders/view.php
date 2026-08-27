@@ -102,7 +102,7 @@ ob_start();
     <div class="small text-muted">Invoice <?php echo htmlspecialchars($order['receipt_number']); ?> · opened <?php echo date('j M Y, g:i a', strtotime($order['created_at'])); ?></div>
   </div>
   <div class="d-flex gap-2">
-    <a class="btn btn-sm btn-outline-secondary" href="<?php echo $ordersBase; ?>"><i class="fas fa-arrow-left me-1"></i>All tabs</a>
+    <a class="btn btn-sm btn-outline-secondary" href="<?php echo $ordersBase; ?>"><i class="fas fa-arrow-left me-1"></i>Credit sales</a>
     <a class="btn btn-sm btn-outline-primary" href="<?php echo $receiptUrl; ?>"><i class="fas fa-receipt me-1"></i>Receipt</a>
   </div>
 </div>
@@ -207,11 +207,14 @@ ob_start();
           <input type="hidden" name="action" value="add_items">
           <input type="hidden" name="cart" id="cartInput" value="">
           <div class="position-relative mb-2">
-            <input type="text" id="search" class="form-control" placeholder="Search books…" autocomplete="off">
+            <input type="text" id="search" class="form-control" placeholder="Search products…" autocomplete="off">
           </div>
           <div id="productList" style="max-height:280px;overflow-y:auto;">
             <?php foreach ($products as $p):
-                $price = (float) ($p['retail_price'] ?: $p['selling_price']);
+                $saleType = ($order['sale_type'] ?? 'retail') === 'wholesale' ? 'wholesale' : 'retail';
+                $price = $saleType === 'wholesale'
+                    ? (float) ($p['wholesale_price'] ?: ($p['retail_price'] ?: $p['selling_price']))
+                    : (float) ($p['retail_price'] ?: $p['selling_price']);
                 $sz = Models\ProductModel::sizeLabel($p);
             ?>
               <button type="button" class="prod btn w-100 text-start border rounded mb-2 p-2 d-flex justify-content-between align-items-center"

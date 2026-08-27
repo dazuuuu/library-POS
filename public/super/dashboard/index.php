@@ -25,6 +25,7 @@ $SA = new Models\SaleModel($pdo);
 $OR = new Models\OrderModel($pdo);
 $P  = new Models\ProductModel($pdo);
 $svc = new StaffService($pdo);
+$TL = new Models\TimeLogModel($pdo);
 
 $today = dash_sales($SA, $OR, 'today');
 $week  = dash_sales($SA, $OR, 'week');
@@ -34,6 +35,29 @@ $weekSum  = Models\SaleModel::summarize($week);
 $lowStock  = $P->lowStock();
 $staffList = $svc->listForTenant((int) TenantContext::tenantId());
 $openTabs  = $OR->openOrders();
+$currentlyIn = $TL->currentlyIn((int) TenantContext::tenantId());
+$todayAttendance = $TL->todaysEvents((int) TenantContext::tenantId());
+
+$profitAvailable = true;
+$todayCogs = 0.0;
+try {
+    $profitRows = $SA->productProfit('today');
+    $byProduct = [];
+    foreach ($profitRows as $pp) { $byProduct[$pp['product_id']] = $pp; }
+    foreach ($OR->productProfit('today') as $op) {
+        $pid = $op['product_id'];
+        if (isset($byProduct[$pid])) {
+            $byProduct[$pid]['cost'] += $op['cost'];
+        } else {
+            $byProduct[$pid] = $op;
+        }
+    }
+    foreach ($byProduct as $pp) { $todayCogs += (float) $pp['cost']; }
+} catch (Throwable $e) {
+    $profitAvailable = false;
+}
+$todayProfit = $profitAvailable ? round($todaySum['revenue'] - $todayCogs, 2) : null;
+$todayLoss = $todayProfit !== null && $todayProfit < 0 ? abs($todayProfit) : 0.0;
 
 // Last 7 days revenue for the chart (oldest first).
 $chartLabels = [];
@@ -58,12 +82,12 @@ foreach ($recent as &$r) {
 }
 unset($r);
 
-$page_title = 'Dashboard';
+$page_title = 'Home';
 $shop = $__tenant['name'] ?? 'your shop';
 ob_start();
 ?>
 <div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3">
+  <div class="col-12 col-sm-6 col-lg-2">
     <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
@@ -75,19 +99,31 @@ ob_start();
       </div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-12 col-sm-6 col-lg-2">
     <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
-          <span class="text-muted small text-uppercase fw-semibold">7-day Revenue</span>
-          <span class="dash-ic" style="background:#eff6ff;color:#2563eb;"><i class="fas fa-chart-line"></i></span>
+          <span class="text-muted small text-uppercase fw-semibold">Profit Today</span>
+          <span class="dash-ic" style="background:#ecfdf5;color:#059669;"><i class="fas fa-arrow-trend-up"></i></span>
         </div>
-        <div class="h4 mb-0 fw-bold"><?php echo htmlspecialchars($currency); ?> <?php echo number_format($weekSum['revenue'], 0); ?></div>
-        <div class="text-muted small"><?php echo $weekSum['count']; ?> sale<?php echo $weekSum['count'] !== 1 ? 's' : ''; ?> this week</div>
+        <div class="h4 mb-0 fw-bold <?php echo $todayProfit !== null && $todayProfit < 0 ? 'text-danger' : ''; ?>"><?php echo $profitAvailable ? htmlspecialchars($currency) . ' ' . number_format((float) $todayProfit, 0) : 'N/A'; ?></div>
+        <div class="text-muted small">revenue minus cost</div>
       </div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-12 col-sm-6 col-lg-2">
+    <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
+      <div class="card-body p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-muted small text-uppercase fw-semibold">Loss Today</span>
+          <span class="dash-ic" style="background:#fef2f2;color:#dc2626;"><i class="fas fa-arrow-trend-down"></i></span>
+        </div>
+        <div class="h4 mb-0 fw-bold <?php echo $todayLoss > 0 ? 'text-danger' : ''; ?>"><?php echo $profitAvailable ? htmlspecialchars($currency) . ' ' . number_format($todayLoss, 0) : 'N/A'; ?></div>
+        <div class="text-muted small">shown when cost exceeds sales</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-lg-2">
     <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
@@ -99,15 +135,27 @@ ob_start();
       </div>
     </div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-12 col-sm-6 col-lg-2">
     <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
-          <span class="text-muted small text-uppercase fw-semibold">Low Stock</span>
-          <span class="dash-ic" style="background:#f0fdf4;color:#16a34a;"><i class="fas fa-box"></i></span>
+          <span class="text-muted small text-uppercase fw-semibold">Attendance</span>
+          <span class="dash-ic" style="background:#eef2ff;color:#4f46e5;"><i class="fas fa-user-clock"></i></span>
         </div>
-        <div class="h4 mb-0 fw-bold <?php echo $lowStock ? 'text-danger' : ''; ?>"><?php echo count($lowStock); ?></div>
-        <div class="text-muted small"><?php echo count($staffList); ?> staff on the team</div>
+        <div class="h4 mb-0 fw-bold"><?php echo count($currentlyIn); ?></div>
+        <div class="text-muted small"><?php echo count($todayAttendance); ?> clock event<?php echo count($todayAttendance) === 1 ? '' : 's'; ?> today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-lg-2">
+    <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
+      <div class="card-body p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-muted small text-uppercase fw-semibold">7-day Revenue</span>
+          <span class="dash-ic" style="background:#eff6ff;color:#2563eb;"><i class="fas fa-chart-line"></i></span>
+        </div>
+        <div class="h4 mb-0 fw-bold"><?php echo htmlspecialchars($currency); ?> <?php echo number_format($weekSum['revenue'], 0); ?></div>
+        <div class="text-muted small"><?php echo $weekSum['count']; ?> sale<?php echo $weekSum['count'] !== 1 ? 's' : ''; ?> this week</div>
       </div>
     </div>
   </div>
@@ -125,6 +173,18 @@ ob_start();
   <div class="col-12 col-lg-4">
     <div class="card border-0 shadow-sm h-100" style="border-radius:16px;">
       <div class="card-body p-4">
+        <h2 class="h6 fw-bold mb-3"><i class="fas fa-user-clock me-2 text-primary"></i>Attendance now</h2>
+        <?php if (!$currentlyIn): ?>
+          <div class="text-muted small mb-3">No staff clocked in right now.</div>
+        <?php else: ?>
+          <?php foreach (array_slice($currentlyIn, 0, 4) as $log): ?>
+            <div class="d-flex justify-content-between border-bottom py-2">
+              <span class="small fw-semibold"><?php echo htmlspecialchars($log['username']); ?></span>
+              <span class="small text-muted"><?php echo date('g:i a', strtotime($log['clock_in_at'])); ?></span>
+            </div>
+          <?php endforeach; ?>
+          <a class="small d-block mt-2 mb-3" href="<?php echo public_url('super/staff/attendance.php'); ?>">View attendance</a>
+        <?php endif; ?>
         <h2 class="h6 fw-bold mb-3"><i class="fas fa-triangle-exclamation me-2 text-warning"></i>Low stock</h2>
         <?php if (!$lowStock): ?>
           <div class="text-muted small">Nothing running low. Nice.</div>
@@ -144,7 +204,7 @@ ob_start();
 
 <div class="card border-0 shadow-sm" style="border-radius:16px;">
   <div class="card-body p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <h2 class="h6 fw-bold mb-0">Recent sales</h2>
       <a class="btn btn-sm btn-outline-secondary" href="<?php echo public_url('super/sales/'); ?>">View all</a>
     </div>
@@ -178,7 +238,15 @@ ob_start();
   </div>
 </div>
 
-<style>.dash-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:.9rem;}</style>
+<style>
+.dash-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:.9rem;flex:0 0 auto;}
+@media (max-width:576px){
+  #salesChart{min-height:220px;}
+  .dash-ic{width:32px;height:32px;}
+  .card .text-uppercase{font-size:.68rem;line-height:1.25;}
+  .card .h4{overflow-wrap:anywhere;}
+}
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 new Chart(document.getElementById('salesChart'), {

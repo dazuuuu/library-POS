@@ -11,15 +11,17 @@ $__authLogo   = Branding::tenantLogo($__authTenant);
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title><?php echo htmlspecialchars($page_title ?? 'Admin'); ?> — <?php echo htmlspecialchars($__authShop); ?></title>
+    <?php include __DIR__ . '/../../components/pwa_head.php'; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         :root{ --pos-green:#16a34a; --pos-green-dark:#15803d; --pos-green-light:#f0fdf4; --pos-bg:#f7f7fb; --pos-ink:#1f2330; }
         *{box-sizing:border-box;margin:0;padding:0}
-        body{min-height:100vh;display:flex;align-items:center;justify-content:center;
-             background:var(--pos-bg);font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;padding:40px 20px;}
+        body{min-height:100vh;min-height:100svh;display:flex;align-items:center;justify-content:center;
+             background:var(--pos-bg);font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+             padding:40px 20px;padding-top:max(24px,env(safe-area-inset-top));padding-bottom:max(24px,env(safe-area-inset-bottom));}
 
         .auth-card{width:420px;max-width:100%;background:#fff;border:1px solid #eef0f4;border-radius:20px;
                    box-shadow:0 12px 40px rgba(16,24,40,.08);overflow:hidden;}
@@ -59,8 +61,20 @@ $__authLogo   = Branding::tenantLogo($__authTenant);
         .auth-foot a:hover{text-decoration:underline}
 
         @media(max-width:480px){
-          .auth-head{padding:24px 24px 0}
-          .auth-body{padding:16px 24px 24px}
+          body{align-items:flex-start;padding-left:14px;padding-right:14px;}
+          .auth-card{width:100%;border-radius:18px;}
+          .auth-head{padding:22px 20px 0}
+          .auth-body{padding:16px 20px 22px}
+          .auth-title{font-size:1.25rem;}
+          .auth-sub{font-size:.86rem;margin-bottom:18px;}
+          .form-control{font-size:16px!important;min-height:48px!important;}
+          .btn-auth{min-height:50px;font-size:1rem;}
+          .logo-icon{width:50px;height:50px;border-radius:13px;}
+        }
+        @media(max-width:360px){
+          body{padding-left:10px;padding-right:10px;}
+          .auth-head{padding-left:16px;padding-right:16px;}
+          .auth-body{padding-left:16px;padding-right:16px;}
         }
     </style>
 </head>

@@ -1,19 +1,14 @@
 <?php
 // public/super/stock/new.php — record a delivery: a supplier brings a batch
-// of books (new titles, or a restock of ones already on the shelf), in the
-// same shape as the shop's paper stock ledger: Subject, Book Title,
-// Grade/Class, Publisher, Author, Edition, Opening Stock, Unit Price, Total,
-// Balance, Remark. Every text field below is free entry with live
-// suggestions — picking a suggestion (or typing an exact match) reuses the
-// existing Subject/Grade/Publisher/Author/Edition/Supplier; anything new is
-// created automatically on save. No dropdowns.
+// of products (new items, or a restock of ones already on the shelf). Every
+// text field below is free entry with live suggestions; anything new is
+// created automatically on save.
 require_once __DIR__ . '/../../../app/app.php';
 PageGuard::capability(Capabilities::STOCK_ENTER);
 
 $pdo = Database::pdo();
 $SUP = new Models\SupplierModel($pdo);
 $C   = new Models\CategoryModel($pdo);
-$BA  = new Models\BookAttributeModel($pdo);
 $SI  = new Models\StockIntakeModel($pdo);
 
 $base = public_url('super/stock/new.php');
@@ -53,7 +48,7 @@ function stock_handle_image(array $file): array
     }
     $dir = ROOT_PATH . '/public/assets/uploads/products';
     if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
-    $name = 'book_' . bin2hex(random_bytes(6)) . '.' . $allowed[$mime];
+    $name = 'prod_' . bin2hex(random_bytes(6)) . '.' . $allowed[$mime];
     if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $name)) {
         return ['ok' => false, 'error' => 'Could not save the image. Check folder permissions.'];
     }
@@ -95,15 +90,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $items[] = [
                 'mode'            => 'new',
                 'name'            => $title,
-                'category_id'     => (int) $C->findOrCreate($row['subject'] ?? ''),
-                'grade_id'        => (int) $BA->findOrCreate('grade', $row['grade'] ?? ''),
-                'publisher_id'    => (int) $BA->findOrCreate('publisher', $row['publisher'] ?? ''),
-                'author_id'       => (int) $BA->findOrCreate('author', $row['author'] ?? ''),
-                'edition_id'      => (int) $BA->findOrCreate('edition', $row['edition'] ?? ''),
+                'category_id'     => (int) $C->findOrCreate($row['category'] ?? '', 'subject'),
+                'grade_id'        => 0,
+                'publisher_id'    => 0,
+                'author_id'       => 0,
+                'edition_id'      => 0,
                 'barcode'         => trim($row['barcode'] ?? ''),
                 'quantity'        => $qty,
                 'buying_price'    => (float) ($row['buying_price'] ?? 0),
-                'selling_price'   => $row['selling_price'] ?? 0,
+                'selling_price'   => $row['retail_price'] ?? 0,
                 'wholesale_price' => $row['wholesale_price'] ?? '',
                 'offer_price'     => $row['offer_price'] ?? '',
                 'offer_starts_at' => $row['offer_starts_at'] ?? '',
@@ -114,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$error && !$items) {
-            $error = 'Add at least one book with a quantity.';
+                $error = 'Add at least one product with a quantity.';
         }
 
         if (!$error) {
@@ -122,9 +117,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'supplier_id' => $supplierId,
                 'staff_id'    => TenantContext::userId(),
                 'notes'       => $_POST['notes'] ?? '',
+                'amount_paid' => $_POST['amount_paid'] ?? 0,
             ], $items);
             if ($res['ok']) {
-                $_SESSION['flash']['success'] = 'Stock recorded — ' . count($items) . ' book' . (count($items) === 1 ? '' : 's') . '.';
+                $_SESSION['flash']['success'] = 'Stock recorded — ' . count($items) . ' product' . (count($items) === 1 ? '' : 's') . '.';
                 header('Location: ' . public_url('super/inventory/'));
                 exit;
             }
@@ -154,6 +150,15 @@ ob_start();
           <label class="form-label">Notes <span class="text-muted">(optional)</span></label>
           <input name="notes" class="form-control" placeholder="e.g. invoice #, delivery date">
         </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label">Paid to supplier now</label>
+          <input type="number" step="0.01" min="0" name="amount_paid" id="amountPaid" class="form-control" placeholder="Leave empty if fully on credit">
+          <div class="form-text">If this is less than the delivery total, the balance will be tracked as supplier credit.</div>
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label">Supplier balance</label>
+          <div class="form-control bg-light fw-semibold" id="supplierDue">KES 0</div>
+        </div>
       </div>
     </div>
   </div>
@@ -161,8 +166,8 @@ ob_start();
   <div class="card border-0 shadow-sm mb-4" style="border-radius:12px;">
     <div class="card-body p-4">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="h5 mb-0">Books received</h2>
-        <button type="button" class="btn btn-sm btn-outline-primary" id="addRowBtn"><i class="fas fa-plus me-1"></i>Add another book</button>
+        <h2 class="h5 mb-0">Products received</h2>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="addRowBtn"><i class="fas fa-plus me-1"></i>Add another product</button>
       </div>
       <div id="rows"></div>
       <div class="d-flex justify-content-end pt-2 border-top mt-2">
@@ -177,14 +182,14 @@ ob_start();
 <template id="rowTpl">
   <div class="stock-row border rounded p-3 mb-3" style="border-color:#e2e8f0!important;">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <span class="fw-semibold small text-muted">Book __N__</span>
+      <span class="fw-semibold small text-muted">Product __N__</span>
       <button type="button" class="btn btn-sm btn-link text-danger p-0 removeRow">Remove</button>
     </div>
     <div class="row g-2">
       <div class="col-12 col-sm-6">
-        <label class="form-label small mb-1">Book title</label>
+        <label class="form-label small mb-1">Product name</label>
         <div class="ta-wrap">
-          <input type="text" name="items[__I__][title]" class="form-control form-control-sm ta-input bookTitle" data-field="title" placeholder="e.g. Let's do Mathematics" autocomplete="off">
+          <input type="text" name="items[__I__][title]" class="form-control form-control-sm ta-input bookTitle" data-field="title" placeholder="e.g. Maize flour 2kg" autocomplete="off">
           <div class="ta-menu"></div>
         </div>
         <input type="hidden" name="items[__I__][product_choice]" class="productChoice" value="">
@@ -196,7 +201,7 @@ ob_start();
         <div class="barcodeNote small mt-1" style="display:none;"></div>
       </div>
       <div class="col-12 col-sm-6 photoCol newProductFields">
-        <label class="form-label small mb-1">Cover photo <span class="text-muted">(optional)</span></label>
+        <label class="form-label small mb-1">Photo <span class="text-muted">(optional)</span></label>
         <div class="d-flex align-items-center gap-2">
           <input type="file" name="items[__I__][image]" accept="image/*" class="form-control form-control-sm photoInput">
           <img class="photoPreview" style="display:none;width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0;">
@@ -204,37 +209,9 @@ ob_start();
       </div>
 
       <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Subject</label>
+        <label class="form-label small mb-1">Category</label>
         <div class="ta-wrap">
-          <input type="text" name="items[__I__][subject]" class="form-control form-control-sm ta-input" data-field="subject" placeholder="e.g. Mathematics" autocomplete="off">
-          <div class="ta-menu"></div>
-        </div>
-      </div>
-      <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Grade/Class</label>
-        <div class="ta-wrap">
-          <input type="text" name="items[__I__][grade]" class="form-control form-control-sm ta-input" data-field="grade" placeholder="e.g. Grade Three" autocomplete="off">
-          <div class="ta-menu"></div>
-        </div>
-      </div>
-      <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Publisher</label>
-        <div class="ta-wrap">
-          <input type="text" name="items[__I__][publisher]" class="form-control form-control-sm ta-input" data-field="publisher" placeholder="e.g. Longhorn" autocomplete="off">
-          <div class="ta-menu"></div>
-        </div>
-      </div>
-      <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Author</label>
-        <div class="ta-wrap">
-          <input type="text" name="items[__I__][author]" class="form-control form-control-sm ta-input" data-field="author" placeholder="e.g. Kefa Masita" autocomplete="off">
-          <div class="ta-menu"></div>
-        </div>
-      </div>
-      <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Edition</label>
-        <div class="ta-wrap">
-          <input type="text" name="items[__I__][edition]" class="form-control form-control-sm ta-input" data-field="edition" placeholder="e.g. First" autocomplete="off">
+          <input type="text" name="items[__I__][category]" class="form-control form-control-sm ta-input" data-field="category" placeholder="e.g. Groceries" autocomplete="off">
           <div class="ta-menu"></div>
         </div>
       </div>
@@ -248,8 +225,8 @@ ob_start();
         <input type="number" step="0.01" min="0" name="items[__I__][buying_price]" class="form-control form-control-sm buyingPrice" placeholder="0">
       </div>
       <div class="col-6 col-sm-3 mt-2 newProductFields">
-        <label class="form-label small mb-1">Selling price</label>
-        <input type="number" step="0.01" min="0" name="items[__I__][selling_price]" class="form-control form-control-sm" placeholder="0">
+        <label class="form-label small mb-1">Retail</label>
+        <input type="number" step="0.01" min="0" name="items[__I__][retail_price]" class="form-control form-control-sm" placeholder="0">
       </div>
       <div class="col-6 col-sm-3 mt-2 newProductFields">
         <label class="form-label small mb-1">Wholesale <span class="text-muted">(optional)</span></label>
@@ -268,7 +245,7 @@ ob_start();
       <div class="col-12 mt-2 newProductFields">
         <div class="form-check">
           <input class="form-check-input offerToggle" type="checkbox" id="offerToggle__I__">
-          <label class="form-check-label small" for="offerToggle__I__"><i class="fas fa-tag me-1"></i>Put this book on offer</label>
+          <label class="form-check-label small" for="offerToggle__I__"><i class="fas fa-tag me-1"></i>Put this product on offer</label>
         </div>
         <div class="row g-2 mt-1 offerFields" style="display:none;">
           <div class="col-6 col-sm-4">
@@ -384,7 +361,7 @@ ob_start();
       if (item.barcode) { barcodeInput.value = item.barcode; }
       row.querySelector('.buyingPrice').value = item.buying_price || '';
       row.querySelector('.qtyLabel').textContent = 'Additional stock';
-      var bits = [item.subject_name, item.grade_name, item.publisher_name, item.author_name, item.edition_name].filter(Boolean);
+      var bits = [item.subject_name].filter(Boolean);
       note.style.display = 'block';
       note.innerHTML = '<i class="fas fa-circle-check me-1"></i>Already on the shelf' + (bits.length ? ' — ' + bits.join(' · ') : '') +
         '. Current balance: <strong>' + item.balance + '</strong>. This adds to it.';
@@ -402,7 +379,7 @@ ob_start();
     return { setRestock: setRestock, clearRestock: clearRestock, isMatched: function () { return lastMatchedId !== null; } };
   }
 
-  // --- Book Title: matches an existing product -> switches the row to restock ---
+  // --- Product name: matches an existing product -> switches the row to restock ---
   function wireTitleField(row, restock) {
     var input = row.querySelector('.bookTitle');
     var wrap = input.closest('.ta-wrap');
@@ -416,7 +393,7 @@ ob_start();
       items.forEach(function (item) {
         var b = document.createElement('button');
         b.type = 'button';
-        var bits = [item.grade_name, item.publisher_name].filter(Boolean);
+        var bits = [item.subject_name].filter(Boolean);
         b.innerHTML = '<span class="fw-semibold">' + item.name + '</span>' +
           (bits.length ? ' <span class="text-muted">— ' + bits.join(' · ') + '</span>' : '') +
           ' <span class="text-muted">(balance ' + item.balance + ')</span>';
@@ -497,6 +474,9 @@ ob_start();
     var sum = 0;
     document.querySelectorAll('.rowTotal').forEach(function (b) { sum += parseFloat(b.dataset.value) || 0; });
     document.getElementById('grandTotal').textContent = money(sum);
+    var paid = parseFloat(document.getElementById('amountPaid').value);
+    if (isNaN(paid)) paid = 0;
+    document.getElementById('supplierDue').textContent = money(Math.max(0, sum - paid));
   }
 
   function wireRow(row) {
@@ -505,7 +485,7 @@ ob_start();
     var restock = makeRestockControls(row);
     wireTitleField(row, restock);
     wireBarcodeField(row, restock);
-    ['subject', 'grade', 'publisher', 'author', 'edition'].forEach(function (field) {
+    ['category'].forEach(function (field) {
       var el = row.querySelector('[data-field="' + field + '"]');
       if (el) attachTypeahead(el, field);
     });
@@ -540,13 +520,14 @@ ob_start();
   }
 
   document.getElementById('addRowBtn').addEventListener('click', addRow);
+  document.getElementById('amountPaid').addEventListener('input', recalcGrandTotal);
   addRow(); // start with one row
 
   var supplierInput = document.querySelector('.ta-input[data-field="supplier"]');
   attachTypeahead(supplierInput, 'supplier');
 
   document.getElementById('stockForm').addEventListener('submit', function (e) {
-    if (!rowsWrap.children.length) { e.preventDefault(); alert('Add at least one book.'); }
+    if (!rowsWrap.children.length) { e.preventDefault(); alert('Add at least one product.'); }
   });
 })();
 </script>

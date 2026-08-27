@@ -50,13 +50,21 @@ class StockIntakeModel extends Model
 
         try {
             $db->beginTransaction();
+            $deliveryTotal = 0.0;
+            foreach ($items as $i) {
+                $deliveryTotal += max(0, (float) ($i['quantity'] ?? 0)) * max(0, (float) ($i['buying_price'] ?? 0));
+            }
+            $amountPaid = min($deliveryTotal, max(0, round((float) ($header['amount_paid'] ?? $deliveryTotal), 2)));
+            $amountDue = round($deliveryTotal - $amountPaid, 2);
+            $paymentStatus = $amountDue > 0 ? ($amountPaid > 0 ? 'part_paid' : 'credit') : 'paid';
 
             $insIntake = $db->prepare(
-                'INSERT INTO stock_intakes (tenant_id, supplier_id, staff_id, notes) VALUES (?,?,?,?)'
+                'INSERT INTO stock_intakes (tenant_id, supplier_id, staff_id, notes, total_amount, amount_paid, amount_due, payment_status) VALUES (?,?,?,?,?,?,?,?)'
             );
             $insIntake->execute([
                 $tid, $supplierId > 0 ? $supplierId : null, $staffId,
                 trim((string) ($header['notes'] ?? '')) !== '' ? trim($header['notes']) : null,
+                $deliveryTotal, $amountPaid, $amountDue, $paymentStatus,
             ]);
             $intakeId = (int) $db->lastInsertId();
 
@@ -198,6 +206,10 @@ class StockIntakeModel extends Model
 
         $this->ensureColumn('stock_intakes', 'supplier_id', "ALTER TABLE stock_intakes MODIFY supplier_id INT NULL");
         $this->ensureColumn('stock_intakes', 'notes', "ALTER TABLE stock_intakes ADD COLUMN notes VARCHAR(255) NULL AFTER staff_id");
+        $this->ensureColumn('stock_intakes', 'total_amount', "ALTER TABLE stock_intakes ADD COLUMN total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER notes");
+        $this->ensureColumn('stock_intakes', 'amount_paid', "ALTER TABLE stock_intakes ADD COLUMN amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER total_amount");
+        $this->ensureColumn('stock_intakes', 'amount_due', "ALTER TABLE stock_intakes ADD COLUMN amount_due DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER amount_paid");
+        $this->ensureColumn('stock_intakes', 'payment_status', "ALTER TABLE stock_intakes ADD COLUMN payment_status ENUM('paid','part_paid','credit') NOT NULL DEFAULT 'paid' AFTER amount_due");
         $this->ensureColumn('stock_intake_items', 'remark', "ALTER TABLE stock_intake_items ADD COLUMN remark VARCHAR(255) NULL AFTER buying_price");
     }
 

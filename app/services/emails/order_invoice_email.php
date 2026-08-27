@@ -25,10 +25,16 @@ function build_order_invoice_email(array $order, array $items, array $shop): arr
     }
 
     $discount = (float) ($order['discount_amount'] ?? 0);
+    $deliveryFee = (float) ($order['delivery_fee'] ?? 0);
     $totalsRows = '';
-    if ($discount > 0) {
+    if ($discount > 0 || $deliveryFee > 0) {
         $totalsRows .= '<tr><td colspan="3" style="padding:4px 4px;text-align:right;color:#64748b;">Subtotal</td><td style="padding:4px 4px;text-align:right;">' . $money($order['subtotal']) . '</td></tr>';
+    }
+    if ($discount > 0) {
         $totalsRows .= '<tr><td colspan="3" style="padding:4px 4px;text-align:right;color:#64748b;">Discount</td><td style="padding:4px 4px;text-align:right;">− ' . $money($discount) . '</td></tr>';
+    }
+    if ($deliveryFee > 0) {
+        $totalsRows .= '<tr><td colspan="3" style="padding:4px 4px;text-align:right;color:#64748b;">Delivery fee</td><td style="padding:4px 4px;text-align:right;">' . $money($deliveryFee) . '</td></tr>';
     }
     $totalsRows .= '<tr><td colspan="3" style="padding:8px 4px;text-align:right;font-weight:700;border-top:2px solid #e2e8f0;">Amount due</td><td style="padding:8px 4px;text-align:right;font-weight:700;border-top:2px solid #e2e8f0;">' . $money($order['total']) . '</td></tr>';
 
@@ -65,10 +71,15 @@ HTML;
     foreach ($items as $it) {
         $textLines[] = $it['product_name'] . ' x' . rtrim(rtrim(number_format((float) $it['quantity'], 2), '0'), '.') . ' — ' . $money($it['line_total']);
     }
-    if ($discount > 0) {
+    if ($discount > 0 || $deliveryFee > 0) {
         $textLines[] = '';
         $textLines[] = 'Subtotal: ' . $money($order['subtotal']);
+    }
+    if ($discount > 0) {
         $textLines[] = 'Discount: -' . $money($discount);
+    }
+    if ($deliveryFee > 0) {
+        $textLines[] = 'Delivery fee: ' . $money($deliveryFee);
     }
     $textLines[] = '';
     $textLines[] = 'Amount due: ' . $money($order['total']);

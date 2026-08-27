@@ -15,7 +15,7 @@ $roleDefaults = $svc->roleDefaultCaps('staff');
 // underneath (never owner-only powers) — the fine-grained caps still exist,
 // this just simplifies what the owner sees and toggles.
 $toggles = [
-    ['key' => 'take_orders',      'label' => 'Take orders',       'desc' => 'Open tabs, add drinks, and record sales.',                    'caps' => [Capabilities::SALES_RECORD]],
+    ['key' => 'take_orders',      'label' => 'Take orders',       'desc' => 'Create credit sales, add products, and record sales.',         'caps' => [Capabilities::SALES_RECORD]],
     ['key' => 'process_payments', 'label' => 'Process payments',  'desc' => 'View open/unpaid tabs shop-wide and mark them as paid.',      'caps' => [Capabilities::PAYMENTS_PROCESS]],
     // Note: inventory.view is deliberately NOT part of this toggle — every
     // staff member can already see the Inventory page by role default; these
@@ -23,7 +23,7 @@ $toggles = [
     // a staff member can be trusted to log deliveries without also being
     // able to edit/delete the catalogue, put items on offer, or archive them.
     ['key' => 'record_stock',     'label' => 'Record stock',      'desc' => 'Record stock deliveries — new titles and restocks.',           'caps' => [Capabilities::STOCK_ENTER]],
-    ['key' => 'edit_inventory',   'label' => 'Edit inventory',    'desc' => 'Edit books, put items on offer or archive them, and manage suppliers/subjects/grades/publishers.', 'caps' => [Capabilities::INVENTORY_EDIT]],
+    ['key' => 'edit_inventory',   'label' => 'Edit inventory',    'desc' => 'Edit products, put items on offer or archive them, and manage categories and suppliers.', 'caps' => [Capabilities::INVENTORY_EDIT]],
 ];
 $manageable = [];
 foreach ($toggles as $t) { foreach ($t['caps'] as $c) { $manageable[] = $c; } }

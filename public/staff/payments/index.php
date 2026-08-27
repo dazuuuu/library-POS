@@ -7,6 +7,7 @@ PageGuard::capability(Capabilities::PAYMENTS_PROCESS);
 
 $pdo = Database::pdo();
 $O = new Models\OrderModel($pdo);
+$isStaffViewer = TenantContext::role() === 'staff';
 
 $error = '';
 $receiptQuery = trim($_GET['receipt'] ?? $_POST['receipt_number'] ?? '');
@@ -28,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'settl
         ], TenantContext::userId());
         if ($res['ok']) {
             $_SESSION['flash']['success'] = 'Payment recorded for ' . $order['receipt_number'] . '.';
-            header('Location: ' . public_url('staff/orders/receipt.php?id=' . (int) $order['id']));
+            header('Location: ' . public_url(($isStaffViewer ? 'staff' : 'super') . '/orders/receipt.php?id=' . (int) $order['id']));
             exit;
         }
         $error = $res['error'] ?? 'Could not record the payment.';
@@ -72,7 +73,7 @@ ob_start();
         <div class="fw-bold fs-5"><?php echo htmlspecialchars($order['table_name']); ?> <?php echo $statusBadge; ?></div>
         <div class="text-muted small">Invoice <?php echo htmlspecialchars($order['receipt_number']); ?> · opened by <?php echo htmlspecialchars($order['opened_by_name'] ?? '—'); ?> · <?php echo date('j M Y, g:i a', strtotime($order['created_at'])); ?></div>
       </div>
-      <a class="btn btn-sm btn-outline-secondary" href="<?php echo public_url('staff/orders/receipt.php?id=' . (int) $order['id']); ?>"><i class="fas fa-receipt me-1"></i>Receipt</a>
+      <a class="btn btn-sm btn-outline-secondary" href="<?php echo public_url(($isStaffViewer ? 'staff' : 'super') . '/orders/receipt.php?id=' . (int) $order['id']); ?>"><i class="fas fa-receipt me-1"></i>Receipt</a>
     </div>
 
     <?php foreach ($items as $it): ?>
@@ -91,7 +92,7 @@ ob_start();
     </div>
 
     <?php if ($order['status'] === 'open'): ?>
-      <form method="post">
+      <form method="post" id="paymentForm">
         <input type="hidden" name="action" value="settle">
         <input type="hidden" name="receipt_number" value="<?php echo htmlspecialchars($order['receipt_number']); ?>">
         <div class="btn-group w-100 mb-3" role="group">
@@ -105,11 +106,7 @@ ob_start();
         <div id="cashBox" class="row g-2 mb-2">
           <div class="col-6">
             <label class="form-label small">Cash given</label>
-            <input type="number" step="0.01" min="0" name="amount_tendered" id="cashGiven" class="form-control" placeholder="0">
-          </div>
-          <div class="col-6">
-            <label class="form-label small">Balance to give back</label>
-            <div class="form-control bg-light fw-semibold" id="cashBalance">KES 0</div>
+            <input type="number" step="0.01" min="0" id="cashGiven" class="form-control" placeholder="0">
           </div>
         </div>
         <div id="splitBox" style="display:none;" class="row g-2 mb-2">
@@ -122,7 +119,11 @@ ob_start();
             <input type="number" step="0.01" min="0" name="mpesa_amount" id="mpesaPortion" class="form-control">
           </div>
         </div>
-        <div class="mb-3"></div>
+        <input type="hidden" name="amount_tendered" id="amountTendered" value="">
+        <div class="mb-3">
+          <label class="form-label small">Balance to give back</label>
+          <div class="form-control bg-light fw-semibold" id="cashBalance">KES 0</div>
+        </div>
         <button type="submit" class="btn btn-success btn-lg w-100"><i class="fas fa-check me-1"></i>Mark paid — KES <?php echo number_format((float) $order['total'], 0); ?></button>
       </form>
       <script>
@@ -131,21 +132,33 @@ ob_start();
         function money(n) { return n.toLocaleString('en-KE', {maximumFractionDigits: 2}); }
         function syncMode() {
           var m = document.querySelector('input[name=payment_method]:checked').value;
-          cashBox.style.display = m === 'mpesa' ? 'none' : 'flex';
+          cashBox.style.display = m === 'cash' ? 'flex' : 'none';
           splitBox.style.display = m === 'split' ? 'flex' : 'none';
           updateBalance();
         }
         function updateBalance() {
           var m = document.querySelector('input[name=payment_method]:checked').value;
-          var due = m === 'split' ? (parseFloat(document.getElementById('cashPortion').value) || 0) : ORDER_TOTAL;
-          var given = parseFloat(document.getElementById('cashGiven').value) || 0;
+          var cashPortion = parseFloat(document.getElementById('cashPortion').value) || 0;
+          var mpesaPortion = parseFloat(document.getElementById('mpesaPortion').value) || 0;
+          var given = m === 'split' ? cashPortion + mpesaPortion : (parseFloat(document.getElementById('cashGiven').value) || 0);
           var bal = document.getElementById('cashBalance');
-          if (m === 'mpesa') { bal.textContent = '—'; return; }
-          bal.textContent = given >= due ? ('KES ' + money(given - due)) : 'short';
+          if (m === 'mpesa') { bal.textContent = 'KES 0'; document.getElementById('amountTendered').value = ''; return; }
+          bal.textContent = given >= ORDER_TOTAL ? ('KES ' + money(given - ORDER_TOTAL)) : ('short KES ' + money(ORDER_TOTAL - given));
+          document.getElementById('amountTendered').value = given;
         }
         document.querySelectorAll('input[name=payment_method]').forEach(function (r) { r.addEventListener('change', syncMode); });
-        ['cashGiven', 'cashPortion'].forEach(function (id) {
+        ['cashGiven', 'cashPortion', 'mpesaPortion'].forEach(function (id) {
           document.getElementById(id).addEventListener('input', updateBalance);
+        });
+        document.getElementById('paymentForm').addEventListener('submit', function (e) {
+          var m = document.querySelector('input[name=payment_method]:checked').value;
+          var given = m === 'split'
+            ? ((parseFloat(document.getElementById('cashPortion').value) || 0) + (parseFloat(document.getElementById('mpesaPortion').value) || 0))
+            : (parseFloat(document.getElementById('cashGiven').value) || 0);
+          if (m !== 'mpesa' && given + 0.0001 < ORDER_TOTAL) {
+            e.preventDefault();
+            alert('Payment is less than the total.');
+          }
         });
         syncMode();
       </script>
@@ -159,4 +172,5 @@ ob_start();
 <?php endif; ?>
 <?php
 $content = ob_get_clean();
-include __DIR__ . '/../../templates/staff/layout.php';
+$__layout = $isStaffViewer ? 'staff' : 'tenants';
+include __DIR__ . '/../../templates/' . $__layout . '/layout.php';

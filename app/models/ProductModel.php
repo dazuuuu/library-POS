@@ -158,10 +158,10 @@ class ProductModel extends Model
         return $grouped;
     }
 
-    /** Books grouped by supplier for the inventory overview. */
+    /** Products grouped by supplier for the inventory overview. */
     public function listGroupedBySupplier(): array
     {
-        $rows = $this->listWithMeta(false, 'book');
+        $rows = $this->listWithMeta();
         $grouped = [];
         foreach ($rows as $p) {
             $key = $p['supplier_name'] ?: 'No supplier';
@@ -271,6 +271,38 @@ class ProductModel extends Model
         );
         $stmt->execute([$tid, $productType, 'active', '%' . $q . '%', $q . '%']);
         return $stmt->fetchAll();
+    }
+
+    public function searchSellable(string $q, int $limit = 12): array
+    {
+        $tid = \TenantContext::tenantId();
+        $q = trim($q);
+        if ($q === '') { return []; }
+        $stmt = $this->db->prepare(
+            "SELECT p.id, p.name, p.selling_price, p.retail_price, p.wholesale_price,
+                    p.offer_price, p.offer_starts_at, p.offer_ends_at, p.quantity, p.unit, p.barcode,
+                    c.name AS category_name
+               FROM products p
+          LEFT JOIN categories c ON c.id = p.category_id
+              WHERE p.tenant_id = ?
+                AND p.status IN ('active','archived')
+                AND p.quantity > 0
+                AND (p.name LIKE ? OR p.barcode LIKE ? OR c.name LIKE ?)
+           ORDER BY (p.name LIKE ?) DESC, p.name ASC
+              LIMIT " . (int) $limit
+        );
+        $like = '%' . $q . '%';
+        $prefix = $q . '%';
+        $stmt->execute([$tid, $like, $like, $like, $prefix]);
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$r) {
+            $eff = self::effectivePrice($r);
+            $r['retail_price'] = $eff['price'];
+            $r['regular_price'] = $eff['regular_price'];
+            $r['wholesale_price'] = (float) ($r['wholesale_price'] ?: ($r['retail_price'] ?: $r['selling_price']));
+            $r['on_offer'] = $eff['on_offer'];
+        }
+        return $rows;
     }
 
     /** Active book with this exact barcode (any status other than archived) —
@@ -436,7 +468,7 @@ class ProductModel extends Model
             if (strlen($barcode) > 64) {
                 $errors['barcode'] = 'That barcode is too long.';
             } elseif ($this->barcodeTakenByAnother($barcode, (int) ($in['id'] ?? 0))) {
-                $errors['barcode'] = 'Another book already has this barcode.';
+                $errors['barcode'] = 'Another product already has this barcode.';
             }
         }
         $catId = (int) ($in['category_id'] ?? 0);

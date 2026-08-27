@@ -14,6 +14,7 @@ $useHomeNavbar = $use_home_navbar ?? false;
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title><?php echo $page_title ?? 'ISMAN Company - Engineering Services'; ?></title>
     <meta name="description" content="<?php echo $page_description ?? 'ISMAN Company provides premium engineering services, metal fabrication, and turnkey fit-out solutions.'; ?>">
+    <?php include __DIR__ . '/../../components/pwa_head.php'; ?>
     
     <!-- Theme CSS (contains all design tokens) -->
     <link rel="stylesheet" href="<?php echo public_url('assets/css/theme.css'); ?>">

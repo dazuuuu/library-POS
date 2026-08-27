@@ -1645,4 +1645,77 @@ ALTER TABLE orders
     ADD COLUMN discount_amount       DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER subtotal,
     ADD COLUMN invoice_sent_at       DATETIME NULL,
     ADD COLUMN delivery_note_sent_at DATETIME NULL;
+
+-- ===== 044_order_wholesale_retail.sql =====
+-- 044_order_wholesale_retail.sql
+-- Retail/wholesale mode for the current order-based selling flow.
+
+ALTER TABLE orders
+    ADD COLUMN sale_type ENUM('retail','wholesale') NOT NULL DEFAULT 'retail' AFTER channel;
+
+ALTER TABLE order_items
+    ADD COLUMN price_type ENUM('retail','wholesale') NOT NULL DEFAULT 'retail' AFTER unit_price;
+
+-- ===== 045_attendance_settings.sql =====
+-- Owner-configured attendance times, late clock-in flagging, and automatic
+-- clock-out at the configured end time.
+
+CREATE TABLE IF NOT EXISTS staff_attendance_settings (
+    tenant_id INT NOT NULL,
+    clock_in_time TIME NOT NULL DEFAULT '08:00:00',
+    clock_out_time TIME NOT NULL DEFAULT '18:00:00',
+    late_grace_minutes INT NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (tenant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE staff_time_logs
+    ADD COLUMN late_clock_in TINYINT(1) NOT NULL DEFAULT 0 AFTER auto_closed;
+
+-- ===== 046_finance_supplier_credit.sql =====
+-- Supplier credit from stock deliveries and shop expense tracking.
+
+ALTER TABLE stock_intakes
+    ADD COLUMN total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER notes,
+    ADD COLUMN amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER total_amount,
+    ADD COLUMN amount_due DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER amount_paid,
+    ADD COLUMN payment_status ENUM('paid','part_paid','credit') NOT NULL DEFAULT 'paid' AFTER amount_due;
+
+CREATE TABLE IF NOT EXISTS finance_expenses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id INT NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    category VARCHAR(80) NOT NULL DEFAULT 'General',
+    amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    payment_method ENUM('cash','mpesa','bank') NOT NULL DEFAULT 'cash',
+    expense_date DATE NOT NULL,
+    notes VARCHAR(255) NULL,
+    created_by INT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_finance_expenses_tenant (tenant_id, expense_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ===== 047_documents_customers_delivery.sql =====
+-- Manual document generation, loyal customers, and delivery-note metadata.
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id INT NOT NULL,
+    name VARCHAR(160) NOT NULL,
+    company_name VARCHAR(160) NULL,
+    email VARCHAR(255) NULL,
+    phone VARCHAR(40) NULL,
+    location VARCHAR(160) NULL,
+    notes VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_customers_tenant_name (tenant_id, name),
+    KEY idx_customers_tenant_email (tenant_id, email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE orders
+    ADD COLUMN customer_id INT NULL AFTER table_name,
+    ADD COLUMN customer_company VARCHAR(160) NULL AFTER customer_phone,
+    ADD COLUMN customer_location VARCHAR(160) NULL AFTER customer_company,
+    ADD COLUMN delivery_person VARCHAR(120) NULL AFTER delivery_note_sent_at,
+    ADD COLUMN delivery_fee DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER delivery_person;
 SET foreign_key_checks = 1;

@@ -131,7 +131,7 @@ $h = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES);
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Register admin — setup tool</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
@@ -154,6 +154,17 @@ $h = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES);
   .badge { display: inline-block; background: #fef3c7; color: #92400e; font-size: .68rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
   code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: .85em; }
   ul { margin: 6px 0 0; padding-left: 18px; }
+  @media (max-width: 560px) {
+    .wrap { padding: max(18px, env(safe-area-inset-top)) 12px max(22px, env(safe-area-inset-bottom)); }
+    h1 { font-size: 1.15rem; line-height: 1.25; }
+    .lead { font-size: .86rem; margin-bottom: 14px; }
+    .card { padding: 16px 14px; border-radius: 10px; margin-bottom: 14px; }
+    .two { grid-template-columns: 1fr; gap: 0; }
+    input { font-size: 16px; min-height: 46px; }
+    .btn { min-height: 48px; font-size: 1rem; }
+    .alert { padding: 10px 12px; font-size: .84rem; }
+    .badge { display: inline-flex; margin-left: 0; margin-top: 6px; }
+  }
 </style>
 </head>
 <body>

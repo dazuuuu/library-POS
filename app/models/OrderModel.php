@@ -14,6 +14,12 @@ class OrderModel extends Model
 {
     protected string $table = 'orders';
 
+    public function __construct(?\PDO $db = null)
+    {
+        parent::__construct($db);
+        $this->ensurePricingSchema();
+    }
+
     /**
      * Open a new order.
      * @param array $in table_name, opened_by, items[{product_id,quantity}],
@@ -42,6 +48,8 @@ class OrderModel extends Model
         }
         $channelIn = $in['channel'] ?? 'tab';
         $channel   = in_array($channelIn, ['walkin', 'tab'], true) ? $channelIn : 'tab';
+        $saleTypeIn = $in['sale_type'] ?? 'retail';
+        $saleType = in_array($saleTypeIn, ['retail', 'wholesale'], true) ? $saleTypeIn : 'retail';
         $items = array_values(array_filter($in['items'] ?? [], fn($i) => (int) ($i['product_id'] ?? 0) > 0 && (float) ($i['quantity'] ?? 0) > 0));
         if (!$items) {
             return ['ok' => false, 'errors' => ['_' => 'Add at least one item.']];
@@ -52,16 +60,16 @@ class OrderModel extends Model
             $db->beginTransaction();
 
             $ins = $db->prepare(
-                "INSERT INTO orders (tenant_id, table_name, channel, opened_by, receipt_number, status, subtotal, total)
-                 VALUES (?,?,?,?,'PENDING','open',0,0)"
+                "INSERT INTO orders (tenant_id, table_name, channel, sale_type, opened_by, receipt_number, status, subtotal, total)
+                 VALUES (?,?,?,?,?,'PENDING','open',0,0)"
             );
-            $ins->execute([$tid, $tableName, $channel, $openedBy]);
+            $ins->execute([$tid, $tableName, $channel, $saleType, $openedBy]);
             $orderId = (int) $db->lastInsertId();
             $prefix  = $channel === 'walkin' ? 'RCP-' : 'ORD-';
             $receipt = $prefix . str_pad((string) $orderId, 6, '0', STR_PAD_LEFT);
             $db->prepare('UPDATE orders SET receipt_number = ? WHERE id = ?')->execute([$receipt, $orderId]);
 
-            $added = $this->insertItems($db, $tid, $orderId, $items, $openedBy);
+            $added = $this->insertItems($db, $tid, $orderId, $items, $openedBy, $saleType);
             if (!$added['ok']) {
                 $db->rollBack();
                 return $added;
@@ -70,14 +78,19 @@ class OrderModel extends Model
             $discountIn = round((float) ($in['discount_amount'] ?? 0), 2);
             $email = trim((string) ($in['customer_email'] ?? ''));
             $phone = trim((string) ($in['customer_phone'] ?? ''));
-            if ($discountIn > 0 || $email !== '' || $phone !== '') {
+            $customerId = (int) ($in['customer_id'] ?? 0) ?: null;
+            $company = trim((string) ($in['customer_company'] ?? ''));
+            $location = trim((string) ($in['customer_location'] ?? ''));
+            $deliveryPerson = trim((string) ($in['delivery_person'] ?? ''));
+            $deliveryFee = max(0, round((float) ($in['delivery_fee'] ?? 0), 2));
+            if ($discountIn > 0 || $email !== '' || $phone !== '' || $customerId || $company !== '' || $location !== '' || $deliveryPerson !== '' || $deliveryFee > 0) {
                 $sub = $db->prepare('SELECT subtotal FROM orders WHERE id = ?');
                 $sub->execute([$orderId]);
                 $subtotal = (float) $sub->fetchColumn();
                 $discount = min(max($discountIn, 0), $subtotal); // never negative, never more than the subtotal
-                $newTotal = round($subtotal - $discount, 2);
-                $db->prepare('UPDATE orders SET discount_amount = ?, total = ?, customer_email = ?, customer_phone = ? WHERE id = ?')
-                    ->execute([$discount, $newTotal, $email !== '' ? $email : null, $phone !== '' ? $phone : null, $orderId]);
+                $newTotal = round($subtotal - $discount + $deliveryFee, 2);
+                $db->prepare('UPDATE orders SET discount_amount = ?, total = ?, customer_id = ?, customer_email = ?, customer_phone = ?, customer_company = ?, customer_location = ?, delivery_person = ?, delivery_fee = ? WHERE id = ?')
+                    ->execute([$discount, $newTotal, $customerId, $email !== '' ? $email : null, $phone !== '' ? $phone : null, $company ?: null, $location ?: null, $deliveryPerson ?: null, $deliveryFee, $orderId]);
             }
 
             $db->commit();
@@ -105,7 +118,7 @@ class OrderModel extends Model
         try {
             $db->beginTransaction();
 
-            $sel = $db->prepare("SELECT id, status FROM orders WHERE id = ? AND tenant_id = ? FOR UPDATE");
+            $sel = $db->prepare("SELECT id, status, sale_type FROM orders WHERE id = ? AND tenant_id = ? FOR UPDATE");
             $sel->execute([$orderId, $tid]);
             $order = $sel->fetch();
             if (!$order) {
@@ -117,7 +130,8 @@ class OrderModel extends Model
                 return ['ok' => false, 'errors' => ['_' => 'This tab is no longer open.']];
             }
 
-            $added = $this->insertItems($db, $tid, $orderId, $items, $staffId);
+            $saleType = in_array($order['sale_type'] ?? 'retail', ['retail', 'wholesale'], true) ? $order['sale_type'] : 'retail';
+            $added = $this->insertItems($db, $tid, $orderId, $items, $staffId, $saleType);
             if (!$added['ok']) {
                 $db->rollBack();
                 return $added;
@@ -133,9 +147,10 @@ class OrderModel extends Model
     }
 
     /** Shared item-insert + stock-decrement + total-recalc, used by open() and addItems(). */
-    private function insertItems(\PDO $db, int $tid, int $orderId, array $items, int $staffId): array
+    private function insertItems(\PDO $db, int $tid, int $orderId, array $items, int $staffId, string $saleType = 'retail'): array
     {
-        $selSql = "SELECT id, name, selling_price, retail_price, quantity, unit
+        $saleType = in_array($saleType, ['retail', 'wholesale'], true) ? $saleType : 'retail';
+        $selSql = "SELECT id, name, selling_price, wholesale_price, retail_price, offer_price, offer_starts_at, offer_ends_at, quantity, unit
                      FROM products WHERE id = ? AND tenant_id = ? AND status IN ('active','archived') FOR UPDATE";
         try {
             $sel = $db->prepare($selSql);
@@ -143,8 +158,8 @@ class OrderModel extends Model
             $sel = $db->prepare("SELECT id, name, selling_price, retail_price, quantity, unit FROM products WHERE id = ? AND tenant_id = ? AND status IN ('active','archived') FOR UPDATE");
         }
         $insItem = $db->prepare(
-            'INSERT INTO order_items (tenant_id, order_id, product_id, product_name, unit_price, quantity, line_total, added_by)
-             VALUES (?,?,?,?,?,?,?,?)'
+            'INSERT INTO order_items (tenant_id, order_id, product_id, product_name, unit_price, price_type, quantity, line_total, added_by)
+             VALUES (?,?,?,?,?,?,?,?,?)'
         );
         $dec = $db->prepare('UPDATE products SET quantity = quantity - ? WHERE id = ? AND tenant_id = ? AND quantity >= ?');
 
@@ -159,19 +174,22 @@ class OrderModel extends Model
             if ($qty > (float) $p['quantity']) {
                 return ['ok' => false, 'errors' => ['_' => "Not enough stock for {$p['name']} — only " . rtrim(rtrim(number_format((float) $p['quantity'], 2), '0'), '.') . ' left.']];
             }
-            // Offer-aware: charges the live offer price when one is running,
-            // the regular price otherwise — same rule everywhere (ProductModel::effectivePrice).
-            $offerRow = $p;
-            if (!array_key_exists('offer_price', $offerRow)) {
-                $offerRow['offer_price'] = null;
-                $offerRow['offer_starts_at'] = null;
-                $offerRow['offer_ends_at'] = null;
+            if ($saleType === 'wholesale') {
+                $unitPrice = (float) ($p['wholesale_price'] ?? 0);
+                if ($unitPrice <= 0) { $unitPrice = (float) ($p['retail_price'] ?: $p['selling_price']); }
+            } else {
+                $offerRow = $p;
+                if (!array_key_exists('offer_price', $offerRow)) {
+                    $offerRow['offer_price'] = null;
+                    $offerRow['offer_starts_at'] = null;
+                    $offerRow['offer_ends_at'] = null;
+                }
+                $unitPrice = ProductModel::effectivePrice($offerRow)['price'];
+                if ($unitPrice <= 0) { $unitPrice = (float) ($p['retail_price'] ?: $p['selling_price']); }
             }
-            $unitPrice = ProductModel::effectivePrice($offerRow)['price'];
-            if ($unitPrice <= 0) { $unitPrice = (float) ($p['retail_price'] ?: $p['selling_price']); }
             $lineTotal = round($unitPrice * $qty, 2);
 
-            $insItem->execute([$tid, $orderId, $pid, $p['name'], $unitPrice, $qty, $lineTotal, $staffId]);
+            $insItem->execute([$tid, $orderId, $pid, $p['name'], $unitPrice, $saleType, $qty, $lineTotal, $staffId]);
             $dec->execute([$qty, $pid, $tid, $qty]);
             if ($dec->rowCount() !== 1) {
                 return ['ok' => false, 'errors' => ['_' => "Stock changed for {$p['name']} while saving. Please try again."]];
@@ -180,8 +198,13 @@ class OrderModel extends Model
 
         $sum = $db->prepare('SELECT COALESCE(SUM(line_total),0) FROM order_items WHERE order_id = ? AND tenant_id = ?');
         $sum->execute([$orderId, $tid]);
-        $total = round((float) $sum->fetchColumn(), 2);
-        $db->prepare('UPDATE orders SET subtotal = ?, total = ? WHERE id = ?')->execute([$total, $total, $orderId]);
+        $subtotal = round((float) $sum->fetchColumn(), 2);
+        $meta = $db->prepare('SELECT discount_amount, delivery_fee FROM orders WHERE id = ?');
+        $meta->execute([$orderId]);
+        $row = $meta->fetch() ?: ['discount_amount' => 0, 'delivery_fee' => 0];
+        $discount = min(max((float) ($row['discount_amount'] ?? 0), 0), $subtotal);
+        $total = round($subtotal - $discount + (float) ($row['delivery_fee'] ?? 0), 2);
+        $db->prepare('UPDATE orders SET subtotal = ?, total = ? WHERE id = ?')->execute([$subtotal, $total, $orderId]);
 
         return ['ok' => true, 'errors' => []];
     }
@@ -225,18 +248,12 @@ class OrderModel extends Model
             } else { // split
                 $cash  = max(0, round((float) ($payment['cash_amount'] ?? 0), 2));
                 $mpesa = max(0, round((float) ($payment['mpesa_amount'] ?? 0), 2));
-                if (abs(($cash + $mpesa) - $total) > 0.01) {
+                $tendered = max(0, round((float) ($payment['amount_tendered'] ?? ($cash + $mpesa)), 2));
+                if (($cash + $mpesa) + 0.0001 < $total) {
                     $db->rollBack();
-                    return ['ok' => false, 'error' => 'Cash and M-Pesa amounts must add up to the total (KES ' . number_format($total, 0) . ').'];
+                    return ['ok' => false, 'error' => 'Cash and M-Pesa amounts are less than the total (KES ' . number_format($total, 0) . ').'];
                 }
-                if ($cash > 0) {
-                    $tendered = max(0, round((float) ($payment['amount_tendered'] ?? 0), 2));
-                    if ($tendered + 0.0001 < $cash) {
-                        $db->rollBack();
-                        return ['ok' => false, 'error' => 'Cash given is less than the cash portion (KES ' . number_format($cash, 0) . ').'];
-                    }
-                    $change = round($tendered - $cash, 2);
-                }
+                $change = round(max(0, ($cash + $mpesa) - $total), 2);
             }
 
             $db->prepare(
@@ -431,7 +448,7 @@ class OrderModel extends Model
         foreach ($rows as &$r) {
             $r['created_at']       = $r['paid_at'];       // reporting date = when paid
             $r['customer_name']    = $r['table_name'];
-            $r['sale_type']        = 'retail';             // tabs don't distinguish wholesale/retail
+            $r['sale_type']        = in_array($r['sale_type'] ?? 'retail', ['retail', 'wholesale'], true) ? $r['sale_type'] : 'retail';
             $r['payment_status']   = 'paid';               // only paid tabs are reported as sales
             $r['discount_amount']  = 0;
             $r['amount_due']       = 0;
@@ -466,7 +483,7 @@ class OrderModel extends Model
         foreach ($rows as &$r) {
             $r['created_at']      = $r['paid_at'];
             $r['customer_name']   = $r['table_name'];
-            $r['sale_type']       = 'retail';
+            $r['sale_type']       = in_array($r['sale_type'] ?? 'retail', ['retail', 'wholesale'], true) ? $r['sale_type'] : 'retail';
             $r['payment_status']  = 'paid';
             $r['discount_amount'] = 0;
             $r['amount_due']      = 0;
@@ -537,5 +554,30 @@ class OrderModel extends Model
         unset($r);
 
         return $rows;
+    }
+
+    private function ensurePricingSchema(): void
+    {
+        $this->ensureColumn('orders', 'sale_type', "ALTER TABLE orders ADD COLUMN sale_type ENUM('retail','wholesale') NOT NULL DEFAULT 'retail' AFTER channel");
+        $this->ensureColumn('order_items', 'price_type', "ALTER TABLE order_items ADD COLUMN price_type ENUM('retail','wholesale') NOT NULL DEFAULT 'retail' AFTER unit_price");
+        $this->ensureColumn('orders', 'customer_id', "ALTER TABLE orders ADD COLUMN customer_id INT NULL AFTER table_name");
+        $this->ensureColumn('orders', 'customer_company', "ALTER TABLE orders ADD COLUMN customer_company VARCHAR(160) NULL AFTER customer_phone");
+        $this->ensureColumn('orders', 'customer_location', "ALTER TABLE orders ADD COLUMN customer_location VARCHAR(160) NULL AFTER customer_company");
+        $this->ensureColumn('orders', 'delivery_person', "ALTER TABLE orders ADD COLUMN delivery_person VARCHAR(120) NULL AFTER delivery_note_sent_at");
+        $this->ensureColumn('orders', 'delivery_fee', "ALTER TABLE orders ADD COLUMN delivery_fee DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER delivery_person");
+    }
+
+    private function ensureColumn(string $table, string $column, string $sql): void
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?");
+            $stmt->execute([$table, $column]);
+            if ((int) $stmt->fetchColumn() > 0) {
+                return;
+            }
+            $this->db->exec($sql);
+        } catch (\PDOException $ignored) {
+            // Setup/migration pages may construct models before the schema exists.
+        }
     }
 }

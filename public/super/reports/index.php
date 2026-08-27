@@ -5,14 +5,16 @@ PageGuard::auth();
 
 $pdo  = Database::pdo();
 $date = preg_replace('/[^0-9-]/', '', $_GET['date'] ?? '') ?: date('Y-m-d');
-$data = SalesReport::data($pdo, TenantContext::tenantId(), $date);
+$type = $_GET['type'] ?? 'general';
+$type = in_array($type, ['general', 'sales', 'inventory', 'products', 'attendance', 'finance'], true) ? $type : 'general';
+$data = SalesReport::data($pdo, TenantContext::tenantId(), $date, $type);
 
 $cur = $data['shop']['currency'] ?: 'KES';
 $sum = $data['sum'];
 $money = fn($v) => $cur . ' ' . number_format((float) $v, 0);
 $isToday = ($date === date('Y-m-d'));
 
-$page_title = 'Sales report';
+$page_title = 'Reports';
 ob_start();
 ?>
 <style>
@@ -24,11 +26,16 @@ ob_start();
 </style>
 
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2 no-print">
-  <h1 class="h5 mb-0 fw-bold">Daily Sales Report</h1>
+  <h1 class="h5 mb-0 fw-bold"><?php echo htmlspecialchars(ucfirst($type)); ?> Report</h1>
   <form method="get" class="d-flex align-items-center gap-2">
+    <select name="type" class="form-select form-select-sm" style="width:auto;">
+      <?php foreach (['general' => 'General', 'sales' => 'Sales only', 'inventory' => 'Inventory only', 'products' => 'Products only', 'attendance' => 'Attendance only', 'finance' => 'Finance only'] as $k => $label): ?>
+      <option value="<?php echo $k; ?>" <?php echo $type === $k ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+      <?php endforeach; ?>
+    </select>
     <input type="date" name="date" value="<?php echo htmlspecialchars($date); ?>" max="<?php echo date('Y-m-d'); ?>" class="form-control form-control-sm" style="width:auto;">
     <button class="btn btn-sm btn-primary" type="submit">View</button>
-    <a class="btn btn-sm btn-outline-secondary" href="download.php?date=<?php echo urlencode($date); ?>"><i class="fas fa-file-pdf me-1"></i>PDF</a>
+    <a class="btn btn-sm btn-outline-secondary" href="download.php?date=<?php echo urlencode($date); ?>&type=<?php echo urlencode($type); ?>"><i class="fas fa-file-pdf me-1"></i>PDF</a>
     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="fas fa-print me-1"></i>Print</button>
   </form>
 </div>
@@ -38,7 +45,7 @@ ob_start();
     <div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
       <div>
         <div class="h5 fw-bold mb-0"><?php echo htmlspecialchars($data['shop']['name'] ?: 'Shop'); ?></div>
-        <div class="text-muted"><?php echo date('l, j F Y', strtotime($date)); ?><?php echo $isToday ? ' · today' : ''; ?></div>
+        <div class="text-muted"><?php echo htmlspecialchars(ucfirst($type)); ?> report · <?php echo date('l, j F Y', strtotime($date)); ?><?php echo $isToday ? ' · today' : ''; ?></div>
       </div>
       <div class="text-end small text-muted">
         <?php if ($data['shop']['phone']): ?><div><?php echo htmlspecialchars($data['shop']['phone']); ?></div><?php endif; ?>
@@ -57,6 +64,7 @@ ob_start();
       <?php endforeach; ?>
     </div>
 
+    <?php if (in_array($type, ['general', 'sales'], true)): ?>
     <h2 class="h6 fw-bold mb-2">Sales <span class="text-muted">(<?php echo $sum['count']; ?>)</span></h2>
     <?php if (!$data['sales']): ?>
       <p class="text-muted">No sales recorded on this day.</p>
@@ -79,8 +87,9 @@ ob_start();
       </table>
     </div>
     <?php endif; ?>
+    <?php endif; ?>
 
-    <?php if ($data['products']): ?>
+    <?php if (in_array($type, ['general', 'products'], true) && $data['products']): ?>
     <h2 class="h6 fw-bold mb-2">Products sold</h2>
     <div class="table-responsive mb-4">
       <table class="table table-sm align-middle mb-0">
@@ -98,7 +107,46 @@ ob_start();
     </div>
     <?php endif; ?>
 
-    <?php if ($data['staff']): ?>
+    <?php if (in_array($type, ['general', 'inventory'], true)): ?>
+    <h2 class="h6 fw-bold mb-2">Inventory</h2>
+    <div class="table-responsive mb-4">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr class="text-muted small text-uppercase"><th>Product</th><th class="text-end">Qty</th><th class="text-end">Cost</th><th class="text-end">Retail</th><th>Status</th></tr></thead>
+        <tbody>
+          <?php foreach ($data['inventory'] as $p): ?>
+          <tr><td class="small"><?php echo htmlspecialchars($p['name']); ?></td><td class="text-end small"><?php echo rtrim(rtrim(number_format((float)$p['quantity'],2),'0'),'.'); ?></td><td class="text-end small"><?php echo $money($p['buying_price']); ?></td><td class="text-end small"><?php echo $money($p['retail_price']); ?></td><td class="small"><?php echo htmlspecialchars($p['status']); ?></td></tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+
+    <?php if (in_array($type, ['general', 'attendance'], true)): ?>
+    <h2 class="h6 fw-bold mb-2">Attendance</h2>
+    <?php if (!$data['attendance']): ?><p class="text-muted">No attendance recorded on this day.</p><?php else: ?>
+    <div class="table-responsive mb-4">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr class="text-muted small text-uppercase"><th>Staff</th><th>Clock in</th><th>Clock out</th><th>Status</th></tr></thead>
+        <tbody>
+          <?php foreach ($data['attendance'] as $a): ?>
+          <tr><td class="small"><?php echo htmlspecialchars($a['username']); ?></td><td class="small"><?php echo date('g:i a', strtotime($a['clock_in_at'])); ?></td><td class="small"><?php echo $a['clock_out_at'] ? date('g:i a', strtotime($a['clock_out_at'])) : 'Still in'; ?></td><td><?php echo !empty($a['late_clock_in']) ? '<span class="badge bg-danger">Late</span>' : (!empty($a['auto_closed']) ? '<span class="badge bg-warning text-dark">Auto closed</span>' : '<span class="badge bg-success">On time</span>'); ?></td></tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if (in_array($type, ['general', 'finance'], true)): $fs = $data['finance']['summary']; ?>
+    <h2 class="h6 fw-bold mb-2">Finance</h2>
+    <div class="row g-2 mb-4">
+      <?php foreach ([['Assets',$fs['assets']],['Liabilities',$fs['liabilities']],['Equity',$fs['equity']],['Supplier debt',$fs['supplier_debt']],['Expenses',$fs['expenses']]] as $f): ?>
+      <div class="col-6 col-md"><div class="p-3 bg-light rounded"><div class="text-muted small"><?php echo htmlspecialchars($f[0]); ?></div><strong><?php echo $money($f[1]); ?></strong></div></div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <?php if (in_array($type, ['general', 'sales'], true) && $data['staff']): ?>
     <h2 class="h6 fw-bold mb-2">By staff member</h2>
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0">
